@@ -368,6 +368,18 @@ pub struct EffectBroker<'a, A: EffectAdapter> {
     pub adapter: A,
 }
 impl<'a, A: EffectAdapter> EffectBroker<'a, A> {
+    /// Capability-only authorization for transports that perform their own I/O.
+    /// The destination is evaluated by the same scoped policy as brokered
+    /// effects; no socket may be opened before this succeeds.
+    pub fn authorize_network(&self, grant: &ScopedGrant, destination: &str) -> Result<()> {
+        Policy::evaluate(
+            grant,
+            &EffectRequest::Network {
+                destination: destination.to_owned(),
+                payload: Vec::new(),
+            },
+        )
+    }
     /// Creates and owns the durable operation lifecycle for an effect. The
     /// intent is committed before authorization or adapter dispatch.
     pub async fn execute_owned(

@@ -18,7 +18,7 @@ An installable plugin has a manifest declaring identity/version, compatible host
 
 ## Testing
 
-Provide manifest/parser tests, denied-capability tests, timeout/crash/malformed-output tests, compatibility tests, and an end-to-end deterministic fixture. Do not call a fixture a live external integration. Typed lifecycle hooks and MCP stdio client/server transport are exercised against the local `fixture_process` binary; HTTP MCP, installation UX, version migration, and full diagnostics remain incomplete.
+Provide manifest/parser tests, denied-capability tests, timeout/crash/malformed-output tests, compatibility tests, and an end-to-end deterministic fixture. Do not call a fixture a live external integration. Typed lifecycle hooks and MCP stdio and Streamable HTTP client/server transports are exercised entirely against local deterministic fixtures; routine tests require no external MCP endpoint.
 
 ## Lifecycle hooks
 
@@ -26,4 +26,12 @@ Provide manifest/parser tests, denied-capability tests, timeout/crash/malformed-
 
 ## MCP stdio
 
-`StdioTransport` launches an MCP process with a cleared environment and exchanges newline-delimited JSON-RPC messages. `serve_stdio` exposes an existing `Server` over any buffered input/output pair and flushes every response. The deterministic fixture proves initialize, tool discovery, and tool invocation locally. This is stdio interoperability evidence only—not HTTP, hosted, or third-party live evidence.
+`StdioTransport` launches an MCP process with a cleared environment and exchanges newline-delimited JSON-RPC messages. `serve_stdio` exposes an existing `Server` over any buffered input/output pair and flushes every response. The deterministic fixture proves initialize, tool discovery, and tool invocation locally.
+
+## MCP Streamable HTTP
+
+`StreamableHttpTransport` uses MCP's JSON/SSE content negotiation, retains the server-issued `Mcp-Session-Id`, correlates JSON-RPC responses, converts protocol/HTTP failures into bounded errors, enforces a request timeout, and supports cancellation both before authorization and while a request is in flight. Before opening a socket it presents the endpoint destination, operation, and context classes to `NetworkMediator`; `EffectBrokerMediator` applies the runtime grant's network allowlist. `serve_streamable_http` is the deterministic local conformance server: POST initializes and invokes MCP, DELETE cancels a session, unknown sessions fail closed, and no external service is needed.
+
+## Installation UX
+
+The Plugins TUI accepts `install|PATH`, `upgrade|PATH`, `uninstall|ID`, `enable|ID`, `disable|ID`, and `diagnostics`. Install and upgrade stage and validate a complete copy, atomically swap it into place, and restore the previous installation on activation or post-validation failure. Uninstall quarantines before deletion and restores on failure. Enablement is explicit persistent state and never grants capabilities. The pane shows compatibility diagnostics plus every declared MCP destination and context class before use.

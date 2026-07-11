@@ -1,15 +1,15 @@
-─── quirky-newt ────────────────────────────────────────────
+─── proud-impala ───────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│
 └──────────────────────────────────────────────────────────┘
 ┌ Tasks · compact ─────────────────────────────────────────┐
-│› 422365c0 Succeeded/Background implement deterministic   │
+│› 56bc4f67 Succeeded/Background implement deterministic   │
 │acceptance evidence · terminal=Some(Completed) · Actions: │
 │pause=false resume=false cancel=false retry=false         │
-│  6dde65d5 TimedOut/Background cenario:timeout ·          │
+│  5d8ee513 TimedOut/Background cenario:timeout ·          │
 │terminal=Some(TimeoutExceeded) · Actions: pause=false     │
 │resume=false cancel=false retry=true                      │
-│  0a8f449f Failed/Background cenario:permission-denied ·  │
+│  64fe242f Failed/Background cenario:permission-denied ·  │
 │terminal=Some(ProviderFailed) · Actions: pause=false      │
 └──────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────┐

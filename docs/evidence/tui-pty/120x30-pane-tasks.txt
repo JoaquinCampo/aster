@@ -1,9 +1,9 @@
-─── quirky-python ──────────────────────────────────────────────────────────────────────────────────────────────────────
+─── kind-raven ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Tasks ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│› 422365c0 Succeeded/Background implement deterministic acceptance evidence · terminal=Some(Completed) · Actions:     │
+│› 56bc4f67 Succeeded/Background implement deterministic acceptance evidence · terminal=Some(Completed) · Actions:     │
 │pause=false resume=false cancel=false retry=false                                                                     │
 │                                                                                                                      │
 │                                                                                                                      │

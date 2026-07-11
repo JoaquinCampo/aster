@@ -108,6 +108,11 @@ fn install_upgrade_diagnostics_failure_isolation_and_uninstall() -> Result<()> {
     let diagnostic = diagnose(&source);
     assert!(diagnostic.compatible, "{:?}", diagnostic.messages);
     assert_eq!(installer.install(&source)?.action, InstallAction::Installed);
+    installer.set_enabled("fixture.echo", true)?;
+    assert!(installer.is_enabled("fixture.echo"));
+    installer.set_enabled("fixture.echo", false)?;
+    assert!(!installer.is_enabled("fixture.echo"));
+    assert_eq!(installer.diagnostics()?.len(), 1);
     let manifest = source.join("plugin.toml");
     let text =
         std::fs::read_to_string(&manifest)?.replace("version = \"1.0.0\"", "version = \"2.0.0\"");

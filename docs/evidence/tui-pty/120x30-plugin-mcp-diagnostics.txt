@@ -1,0 +1,32 @@
+─── heavy-jackal ───────────────────────────────────────────────────────────────────────────────────────────────────────
+┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Plugins ─────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Plugin/MCP diagnostics [list] · transactional installer                                                               │
+│Commands: install|PATH · upgrade|PATH · uninstall|ID · enable|ID · disable|ID · diagnostics                           │
+│Endpoint destinations and disclosed context classes are shown before use. Network access is capability-mediated.      │
+│health checked: 2026-07-11T22:51:08.805483+00:00                                                                      │
+│No plugins discovered                                                                                                 │
+│Codex bridge · Fixture · auth=NotRequired · models=gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol · reasoning=ModelDependent  │
+│tools=Supported stream=Supported usage=Supported errors=Supported cancel=Supported · deterministic fixture; no live   │
+│bridge or credential used                                                                                             │
+│xAI / Grok · Fixture · auth=ReferenceMissing · models=grok-* · reasoning=ModelDependent tools=Supported               │
+│stream=Supported usage=Supported errors=Supported cancel=Supported · deterministic fixture; no live xAI request       │
+│OpenAI-compatible · Fixture · auth=ReferenceMissing · models=deployment-defined · reasoning=ModelDependent            │
+│tools=Supported stream=Supported usage=Supported errors=Supported cancel=Supported · deterministic fixture; no live   │
+│provider request                                                                                                      │
+│Network policy: no product telemetry; local logs/accounting never leave this host                                     │
+│Codex destination: http://127.0.0.1:18474 · task provider communication · sends model, task context, effort           │
+│xAI destination: configured endpoint only · task provider communication · sends model, task context, effort           │
+│OpenAI-compatible destination: configured endpoint only · task provider communication · sends model, task context,    │
+│effort                                                                                                                │
+│plugin registry: 0 discovered                                                                                         │
+│MCP: configured stdio process only · task/tool communication · sends method and explicitly selected tool arguments ·  │
+│no configured live transport                                                                                          │
+│                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│>   │ plugin: 0 installation(s):   │ Tab screens · ↑↓ select · p pause · s resume · x cancel · r retry · o override · │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+─── running | cursor(118,28) | fullscreen:true | title:"" ──────────────────────────────────────────────────────────────

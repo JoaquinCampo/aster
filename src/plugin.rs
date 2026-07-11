@@ -26,6 +26,10 @@ pub struct ProtocolRequirement {
 pub struct McpEndpoint {
     pub name: String,
     pub description: String,
+    #[serde(default)]
+    pub destination: Option<String>,
+    #[serde(default)]
+    pub context_classes: Vec<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ToolContract {
@@ -526,6 +530,42 @@ impl PluginInstaller {
                 from,
             }),
         })
+    }
+
+    pub fn set_enabled(&self, id: &str, enabled: bool) -> Result<()> {
+        let destination = self.root.join(id);
+        PluginManifest::load(&destination.join("plugin.toml"))
+            .context("plugin is not installed")?;
+        let state = destination.join(".enabled");
+        if enabled {
+            fs::write(state, "enabled\n")?;
+        } else if state.exists() {
+            fs::remove_file(state)?;
+        }
+        Ok(())
+    }
+
+    pub fn is_enabled(&self, id: &str) -> bool {
+        self.root.join(id).join(".enabled").is_file()
+    }
+
+    pub fn diagnostics(&self) -> Result<Vec<CompatibilityDiagnostic>> {
+        if !self.root.exists() {
+            return Ok(Vec::new());
+        }
+        let mut out = Vec::new();
+        for entry in fs::read_dir(&self.root)? {
+            let path = entry?.path();
+            if path.is_dir()
+                && !path
+                    .file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+            {
+                out.push(diagnose(&path));
+            }
+        }
+        out.sort_by(|a, b| a.plugin_id.cmp(&b.plugin_id));
+        Ok(out)
     }
 
     pub fn uninstall(&self, id: &str) -> Result<InstallReceipt> {

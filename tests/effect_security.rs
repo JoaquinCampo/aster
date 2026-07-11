@@ -79,6 +79,40 @@ fn grant(root: PathBuf) -> ScopedGrant {
     }
 }
 
+#[test]
+fn mcp_destination_is_mediated_by_runtime_effect_broker_policy() {
+    use aster::mcp::{EffectBrokerMediator, NetworkDisclosure, NetworkMediator};
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open(d.path().join("db")).unwrap();
+    let broker = EffectBroker {
+        store: &store,
+        adapter: Spy(Arc::new(AtomicUsize::new(0))),
+    };
+    let grant = grant(d.path().to_owned());
+    let mediator = EffectBrokerMediator {
+        broker: &broker,
+        grant: &grant,
+    };
+    assert!(
+        mediator
+            .authorize(&NetworkDisclosure {
+                destination: "api.example.com".into(),
+                context_classes: vec!["tool arguments".into()],
+                operation: "mcp.streamable-http".into()
+            })
+            .is_ok()
+    );
+    assert!(
+        mediator
+            .authorize(&NetworkDisclosure {
+                destination: "evil.example".into(),
+                context_classes: vec![],
+                operation: "mcp.streamable-http".into()
+            })
+            .is_err()
+    );
+}
+
 #[tokio::test]
 async fn allowed_effect_is_authorized_before_adapter() {
     let d = tempfile::tempdir().unwrap();

@@ -158,6 +158,7 @@ pub enum Cmd {
     Reconcile(uuid::Uuid, bool),
     Override(uuid::Uuid),
     Memory(String),
+    Plugin(String),
     EditConfig(String, String),
     DecideApproval(String, bool),
     Quit,
@@ -265,6 +266,9 @@ fn update_key(model: &mut Model, code: KeyCode) -> Cmd {
         }
         KeyCode::Enter if !model.input.trim().is_empty() && model.screen == Screen::Memory => {
             Cmd::Memory(std::mem::take(&mut model.input))
+        }
+        KeyCode::Enter if !model.input.trim().is_empty() && model.screen == Screen::Plugins => {
+            Cmd::Plugin(std::mem::take(&mut model.input))
         }
         KeyCode::Enter if !model.input.trim().is_empty() => {
             Cmd::Submit(std::mem::take(&mut model.input))
@@ -515,18 +519,47 @@ fn refresh_observability(model: &mut Model, store: &Store, db_path: &Path) {
                 .collect()
         })
         .unwrap_or_else(|e| vec![format!("memory query error: {e}")]);
-    let roots = [cwd.join(".aster/plugins"), cwd.join("plugins")];
+    let roots = [
+        db_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join(".aster/plugins"),
+        cwd.join(".aster/plugins"),
+        cwd.join("plugins"),
+    ];
     model.observability.plugins = plugin::discover(&roots)
         .map(|items| {
             items
                 .into_iter()
                 .map(|p| {
+                    let endpoints = p
+                        .mcp_endpoints
+                        .iter()
+                        .map(|endpoint| {
+                            format!(
+                                "{}=>{} [{}]",
+                                endpoint.name,
+                                endpoint.destination.as_deref().unwrap_or("stdio/local"),
+                                if endpoint.context_classes.is_empty() {
+                                    "explicit tool arguments".into()
+                                } else {
+                                    endpoint.context_classes.join(",")
+                                }
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; ");
                     format!(
-                        "{} {} · {} tools · {} MCP endpoints",
+                        "{} {} · {} tools · {} MCP endpoints · {}",
                         p.id,
                         p.version,
                         p.tools.len(),
-                        p.mcp_endpoints.len()
+                        p.mcp_endpoints.len(),
+                        if endpoints.is_empty() {
+                            "no endpoint destinations".into()
+                        } else {
+                            endpoints
+                        }
                     )
                 })
                 .collect()
@@ -698,6 +731,19 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
                 Err(error) => format!("memory command failed: {error}"),
             };
         }
+        Cmd::Plugin(command) => {
+            let root = model
+                .memory_path
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join(".aster/plugins");
+            let installer = plugin::PluginInstaller::new(&root);
+            model.status = match execute_plugin_command(&installer, &command) {
+                Ok(message) => format!("plugin: {message}"),
+                Err(error) => format!("plugin command failed: {error}"),
+            };
+            refresh_observability(model, &runtime.store, &model.memory_path.clone());
+        }
         Cmd::EditConfig(field, value) => {
             let result = model
                 .config_path
@@ -722,6 +768,64 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
         .collect();
     model.observability.audit.sort_by_key(|e| e.at);
 }
+fn execute_plugin_command(installer: &plugin::PluginInstaller, command: &str) -> Result<String> {
+    let parts: Vec<_> = command.split('|').map(str::trim).collect();
+    match parts.as_slice() {
+        [verb, source]
+            if verb.eq_ignore_ascii_case("install") || verb.eq_ignore_ascii_case("upgrade") =>
+        {
+            let receipt = installer.install(Path::new(source))?;
+            Ok(format!(
+                "{:?} {} {}",
+                receipt.action, receipt.plugin_id, receipt.version
+            ))
+        }
+        [verb, id] if verb.eq_ignore_ascii_case("uninstall") => {
+            let receipt = installer.uninstall(id)?;
+            Ok(format!(
+                "uninstalled {} {}",
+                receipt.plugin_id, receipt.version
+            ))
+        }
+        [verb, id]
+            if verb.eq_ignore_ascii_case("enable") || verb.eq_ignore_ascii_case("disable") =>
+        {
+            let enabled = verb.eq_ignore_ascii_case("enable");
+            installer.set_enabled(id, enabled)?;
+            Ok(format!(
+                "{id} {}",
+                if enabled { "enabled" } else { "disabled" }
+            ))
+        }
+        [verb]
+            if verb.eq_ignore_ascii_case("diagnostics")
+                || verb.eq_ignore_ascii_case("diagnose") =>
+        {
+            let items = installer.diagnostics()?;
+            Ok(format!(
+                "{} installation(s): {}",
+                items.len(),
+                items
+                    .into_iter()
+                    .map(|d| format!(
+                        "{}={}",
+                        d.plugin_id.unwrap_or_else(|| "unknown".into()),
+                        if d.compatible {
+                            "compatible"
+                        } else {
+                            "incompatible"
+                        }
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        }
+        _ => anyhow::bail!(
+            "usage: install|PATH · upgrade|PATH · uninstall|ID · enable|ID · disable|ID · diagnostics"
+        ),
+    }
+}
+
 fn execute_memory_command(store: &MemoryStore, command: &str) -> Result<String> {
     let parts: Vec<_> = command.split('|').map(str::trim).collect();
     let verb = parts[0].to_ascii_lowercase();
@@ -889,7 +993,7 @@ fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
         ),
         Screen::Memory => format!("Memory index [list] · inspect/search/add/amend/merge/dedupe/contradiction/expire/delete/export · provenance-aware]\nEnter commands with | separators; scopes: turn/task/session/preference/project/decision/audit\n{}", lines(&m.observability.memory,"No active memories")),
         Screen::Providers => format!("Provider status [status]\nhealth checked: {}\n{}",m.observability.health_checked_at, lines(&m.observability.diagnostics,"No diagnostics")),
-        Screen::Plugins => format!("Plugin/MCP diagnostics [list]\nhealth checked: {}\n{}\n{}",m.observability.health_checked_at,lines(&m.observability.plugins,"No plugins discovered"),lines(&m.observability.diagnostics,"No diagnostics")),
+        Screen::Plugins => format!("Plugin/MCP diagnostics [list] · transactional installer\nCommands: install|PATH · upgrade|PATH · uninstall|ID · enable|ID · disable|ID · diagnostics\nEndpoint destinations and disclosed context classes are shown before use. Network access is capability-mediated.\nhealth checked: {}\n{}\n{}",m.observability.health_checked_at,lines(&m.observability.plugins,"No plugins discovered"),lines(&m.observability.diagnostics,"No diagnostics")),
     }
     };
     let title = if compact {
@@ -1155,6 +1259,50 @@ mod tests {
             m.approval_decisions.last(),
             Some(&("deny-digest".into(), false))
         );
+    }
+
+    #[test]
+    fn plugin_tui_commands_cover_transactional_lifecycle() -> Result<()> {
+        fn copy(source: &Path, destination: &Path) -> Result<()> {
+            std::fs::create_dir_all(destination)?;
+            for entry in std::fs::read_dir(source)? {
+                let entry = entry?;
+                let target = destination.join(entry.file_name());
+                if entry.file_type()?.is_dir() {
+                    copy(&entry.path(), &target)?;
+                } else {
+                    std::fs::copy(entry.path(), target)?;
+                }
+            }
+            Ok(())
+        }
+        let temp = tempfile::tempdir()?;
+        let source = temp.path().join("source");
+        copy(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/plugins/echo"),
+            &source,
+        )?;
+        let installer = plugin::PluginInstaller::new(temp.path().join("installed"));
+        assert!(
+            execute_plugin_command(&installer, &format!("install|{}", source.display()))?
+                .contains("Installed")
+        );
+        assert!(execute_plugin_command(&installer, "enable|fixture.echo")?.contains("enabled"));
+        assert!(execute_plugin_command(&installer, "diagnostics")?.contains("compatible"));
+        let manifest = source.join("plugin.toml");
+        std::fs::write(
+            &manifest,
+            std::fs::read_to_string(&manifest)?.replace("1.0.0", "2.0.0"),
+        )?;
+        assert!(
+            execute_plugin_command(&installer, &format!("upgrade|{}", source.display()))?
+                .contains("Upgraded")
+        );
+        assert!(execute_plugin_command(&installer, "disable|fixture.echo")?.contains("disabled"));
+        assert!(
+            execute_plugin_command(&installer, "uninstall|fixture.echo")?.contains("uninstalled")
+        );
+        Ok(())
     }
 
     fn sample() -> Task {

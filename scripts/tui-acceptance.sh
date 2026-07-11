@@ -48,6 +48,18 @@ done
 tui-use type "q"
 tui-use wait >/dev/null || true
 
+# Transactional plugin/MCP UX and endpoint disclosure diagnostics.
+tui-use start --label aster-plugins --cols 120 --rows 30 --cwd "$ROOT" "$BIN --state $DB" >/dev/null
+expect "Succeeded"
+for _ in $(seq 1 13); do tui-use press tab; done
+expect "Plugin/MCP diagnostics [list]"
+tui-use type "diagnostics"
+tui-use press enter
+expect "plugin:"
+capture 120x30-plugin-mcp-diagnostics
+tui-use type "q"
+tui-use wait >/dev/null || true
+
 # Deterministic release-critical failures are driven through the real PTY.
 tui-use start --label aster-failures --cols 120 --rows 30 --cwd "$ROOT" "$BIN --state $DB" >/dev/null
 expect "Succeeded"
