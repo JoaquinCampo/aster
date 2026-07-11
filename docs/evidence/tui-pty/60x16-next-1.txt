@@ -1,15 +1,15 @@
-─── keen-stoat ─────────────────────────────────────────────
+─── quirky-newt ────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│
 └──────────────────────────────────────────────────────────┘
 ┌ Tasks · compact ─────────────────────────────────────────┐
-│› 681d5567 Succeeded/Background implement deterministic   │
+│› 422365c0 Succeeded/Background implement deterministic   │
 │acceptance evidence · terminal=Some(Completed) · Actions: │
 │pause=false resume=false cancel=false retry=false         │
-│  b4705ce8 TimedOut/Background cenario:timeout ·          │
+│  6dde65d5 TimedOut/Background cenario:timeout ·          │
 │terminal=Some(TimeoutExceeded) · Actions: pause=false     │
 │resume=false cancel=false retry=true                      │
-│  1dfd5996 Failed/Background cenario:permission-denied ·  │
+│  0a8f449f Failed/Background cenario:permission-denied ·  │
 │terminal=Some(ProviderFailed) · Actions: pause=false      │
 └──────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────┐

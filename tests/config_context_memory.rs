@@ -178,6 +178,40 @@ fn discovery_is_contained_hierarchical_and_project_content_is_untrusted() {
 }
 
 #[test]
+fn deletion_defeats_low_entropy_dictionary_search_and_export() {
+    let d = tempfile::tempdir().unwrap();
+    let path = d.path().join("memory.db");
+    let store = MemoryStore::open(&path).unwrap();
+    let id = store
+        .add(MemoryScope::UserPreference, "pin", "blue", "typed by user")
+        .unwrap();
+    store.delete(id).unwrap();
+    for candidate in ["blue", "red", "green", "pin", "typed by user"] {
+        assert!(store.search(candidate, None).unwrap().is_empty());
+        assert!(
+            !serde_json::to_string(&store.export().unwrap())
+                .unwrap()
+                .contains(candidate)
+        );
+    }
+    drop(store);
+    for entry in fs::read_dir(d.path()).unwrap() {
+        let bytes = fs::read(entry.unwrap().path()).unwrap();
+        for leaked in [
+            b"blue".as_slice(),
+            b"pin".as_slice(),
+            b"typed by user".as_slice(),
+        ] {
+            assert!(!bytes.windows(leaked.len()).any(|window| window == leaked));
+        }
+        for guess in ["blue", "red", "green"] {
+            let plain = format!("{:x}", sha2::Sha256::digest(guess.as_bytes()));
+            assert!(!String::from_utf8_lossy(&bytes).contains(&plain));
+        }
+    }
+}
+
+#[test]
 fn tui_required_field_edits_are_validated_atomic_and_conflict_aware() {
     let d = tempfile::tempdir().unwrap();
     let path = d.path().join("edit.toml");

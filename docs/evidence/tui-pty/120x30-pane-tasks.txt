@@ -1,9 +1,9 @@
-─── dusty-urial ────────────────────────────────────────────────────────────────────────────────────────────────────────
+─── quirky-python ──────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Tasks ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│› 681d5567 Succeeded/Background implement deterministic acceptance evidence · terminal=Some(Completed) · Actions:     │
+│› 422365c0 Succeeded/Background implement deterministic acceptance evidence · terminal=Some(Completed) · Actions:     │
 │pause=false resume=false cancel=false retry=false                                                                     │
 │                                                                                                                      │
 │                                                                                                                      │

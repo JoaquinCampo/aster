@@ -40,6 +40,7 @@ async fn dag_artifacts_and_checkpoints_are_normalized_and_survive_restart() {
             parent_digest,
             format!("sha256:{:x}", Sha256::digest(&artifacts[0].content))
         );
+        let parent_ref = artifacts[0].id.to_string();
         let checkpoints = runtime.store.checkpoints_for(parent.id).unwrap();
         assert_eq!(
             checkpoints
@@ -67,7 +68,8 @@ async fn dag_artifacts_and_checkpoints_are_normalized_and_survive_restart() {
                 .unwrap()
                 .iter()
                 .any(|event| event.kind == "artifact.inputs_resolved"
-                    && event.detail.contains(&parent_digest))
+                    && event.detail.contains(&parent_ref)
+                    && !event.detail.contains(&parent_digest))
         );
     }
     let reopened = Store::open(&path).unwrap();

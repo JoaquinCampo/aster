@@ -2,7 +2,7 @@ use crate::{
     config::ConfigDocument,
     context,
     domain::{AuditEvent, Task, TaskState},
-    memory::MemoryStore,
+    memory::{MemoryScope, MemoryStore},
     plugin,
     provider::{FakePiAdapter, builtin_statuses},
     routing::Router,
@@ -110,6 +110,7 @@ pub struct Model {
     pub override_open: bool,
     pub override_choice: usize,
     pub config_path: Option<std::path::PathBuf>,
+    pub memory_path: std::path::PathBuf,
     pub config_selected: usize,
     pub pending_approvals: Vec<PendingApproval>,
     pub approval_decisions: Vec<(String, bool)>,
@@ -129,6 +130,7 @@ impl Model {
             override_open: false,
             override_choice: 0,
             config_path: None,
+            memory_path: std::path::PathBuf::from(":memory:"),
             config_selected: 0,
             pending_approvals: vec![],
             approval_decisions: vec![],
@@ -155,6 +157,7 @@ pub enum Cmd {
     Retry(uuid::Uuid),
     Reconcile(uuid::Uuid, bool),
     Override(uuid::Uuid),
+    Memory(String),
     EditConfig(String, String),
     DecideApproval(String, bool),
     Quit,
@@ -259,6 +262,9 @@ fn update_key(model: &mut Model, code: KeyCode) -> Cmd {
         KeyCode::Down => {
             model.selected = (model.selected + 1).min(model.tasks.len().saturating_sub(1));
             Cmd::None
+        }
+        KeyCode::Enter if !model.input.trim().is_empty() && model.screen == Screen::Memory => {
+            Cmd::Memory(std::mem::take(&mut model.input))
         }
         KeyCode::Enter if !model.input.trim().is_empty() => {
             Cmd::Submit(std::mem::take(&mut model.input))
@@ -396,6 +402,7 @@ pub async fn run(path: &Path) -> Result<()> {
         );
     }
     model.config_path = Some(path.with_extension("toml"));
+    model.memory_path = path.to_path_buf();
     refresh_observability(&mut model, &runtime.store, path);
     let _guard = TerminalGuard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
@@ -673,6 +680,14 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
                 &digest[..digest.len().min(12)]
             );
         }
+        Cmd::Memory(command) => {
+            let result = MemoryStore::open(&model.memory_path)
+                .and_then(|store| execute_memory_command(&store, &command));
+            model.status = match result {
+                Ok(message) => format!("memory: {message}"),
+                Err(error) => format!("memory command failed: {error}"),
+            };
+        }
         Cmd::EditConfig(field, value) => {
             let result = model
                 .config_path
@@ -697,6 +712,57 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
         .collect();
     model.observability.audit.sort_by_key(|e| e.at);
 }
+fn execute_memory_command(store: &MemoryStore, command: &str) -> Result<String> {
+    let parts: Vec<_> = command.split('|').map(str::trim).collect();
+    let verb = parts[0].to_ascii_lowercase();
+    let scope = |value: &str| -> Result<MemoryScope> {
+        match value.to_ascii_lowercase().as_str() {
+            "turn" => Ok(MemoryScope::Turn),
+            "task" => Ok(MemoryScope::Task),
+            "session" => Ok(MemoryScope::Session),
+            "preference" => Ok(MemoryScope::UserPreference),
+            "project" => Ok(MemoryScope::ProjectKnowledge),
+            "decision" => Ok(MemoryScope::ArchitectureDecision),
+            "audit" => Ok(MemoryScope::AuditHistory),
+            _ => anyhow::bail!("unknown scope"),
+        }
+    };
+    match verb.as_str() {
+        "list" | "inspect" => Ok(format!("{} active record(s)", store.active()?.len())),
+        "search" if parts.len() == 2 => {
+            Ok(format!("{} match(es)", store.search(parts[1], None)?.len()))
+        }
+        "add" if parts.len() == 5 => Ok(store
+            .add(scope(parts[1])?, parts[2], parts[3], parts[4])?
+            .to_string()),
+        "amend" if parts.len() == 4 => Ok(store
+            .amend(uuid::Uuid::parse_str(parts[1])?, parts[2], parts[3])?
+            .to_string()),
+        "merge" if parts.len() == 5 => {
+            let ids = parts[1]
+                .split(',')
+                .map(uuid::Uuid::parse_str)
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(store.merge(&ids, parts[2], parts[3], parts[4])?.to_string())
+        }
+        "contradictions" if parts.len() == 4 => Ok(format!(
+            "{} contradiction(s)",
+            store
+                .contradictions(&scope(parts[1])?, parts[2], parts[3])?
+                .len()
+        )),
+        "expire" => Ok(format!("{} expired", store.expire(chrono::Utc::now())?)),
+        "delete" if parts.len() == 2 => {
+            store.delete(uuid::Uuid::parse_str(parts[1])?)?;
+            Ok("deleted".into())
+        }
+        "export" => Ok(serde_json::to_string(&store.export()?)?),
+        _ => anyhow::bail!(
+            "usage: inspect | search|query | add|scope|key|value|provenance | amend|id|value|provenance | merge|id,id|key|value|provenance|reserved | contradictions|scope|key|value | expire | delete|id | export"
+        ),
+    }
+}
+
 fn apply_runtime(model: &mut Model, result: anyhow::Result<Task>) {
     match result {
         Ok(task) => {
@@ -811,7 +877,7 @@ fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
                 format!("{} {field}", if i == m.config_selected { "›" } else { " " })
             ).collect::<Vec<_>>().join("\n")
         ),
-        Screen::Memory => format!("Memory index [list]\n{}", lines(&m.observability.memory,"No active memories")),
+        Screen::Memory => format!("Memory index [list] · inspect/search/add/amend/merge/dedupe/contradiction/expire/delete/export · provenance-aware]\nEnter commands with | separators; scopes: turn/task/session/preference/project/decision/audit\n{}", lines(&m.observability.memory,"No active memories")),
         Screen::Providers => format!("Provider status [status]\nhealth checked: {}\n{}",m.observability.health_checked_at, lines(&m.observability.diagnostics,"No diagnostics")),
         Screen::Plugins => format!("Plugin/MCP diagnostics [list]\nhealth checked: {}\n{}\n{}",m.observability.health_checked_at,lines(&m.observability.plugins,"No plugins discovered"),lines(&m.observability.diagnostics,"No diagnostics")),
     }
@@ -963,6 +1029,74 @@ mod tests {
                 .config
                 .verification
                 .enabled
+        );
+    }
+
+    #[tokio::test]
+    async fn memory_tui_commands_cover_full_lifecycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.db");
+        let mut model = Model::new(vec![]);
+        model.screen = Screen::Memory;
+        model.memory_path = path.clone();
+        let mut runtime = Runtime::new(Store::open(&path).unwrap(), FakePiAdapter);
+        for command in [
+            "add|preference|theme|dark|user",
+            "search|dark",
+            "contradictions|preference|theme|light",
+            "inspect",
+            "export",
+            "expire",
+        ] {
+            execute_cmd(&mut model, &mut runtime, Cmd::Memory(command.into())).await;
+            assert!(!model.status.contains("failed"), "{}", model.status);
+        }
+        let store = MemoryStore::open(&path).unwrap();
+        let first = store.active().unwrap()[0].id;
+        drop(store);
+        execute_cmd(
+            &mut model,
+            &mut runtime,
+            Cmd::Memory(format!("amend|{first}|light|user correction")),
+        )
+        .await;
+        let amended = MemoryStore::open(&path).unwrap().active().unwrap()[0].id;
+        execute_cmd(
+            &mut model,
+            &mut runtime,
+            Cmd::Memory("add|preference|font|mono|user".into()),
+        )
+        .await;
+        let ids = MemoryStore::open(&path)
+            .unwrap()
+            .active()
+            .unwrap()
+            .into_iter()
+            .map(|item| item.id)
+            .collect::<Vec<_>>();
+        execute_cmd(
+            &mut model,
+            &mut runtime,
+            Cmd::Memory(format!(
+                "merge|{},{}|display|light mono|reviewed",
+                ids[0], ids[1]
+            )),
+        )
+        .await;
+        let merged = MemoryStore::open(&path).unwrap().active().unwrap()[0].id;
+        assert_ne!(amended, merged);
+        execute_cmd(
+            &mut model,
+            &mut runtime,
+            Cmd::Memory(format!("delete|{merged}")),
+        )
+        .await;
+        assert!(
+            MemoryStore::open(path)
+                .unwrap()
+                .active()
+                .unwrap()
+                .is_empty()
         );
     }
 

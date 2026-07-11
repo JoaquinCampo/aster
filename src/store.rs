@@ -409,6 +409,40 @@ impl Store {
         tx.commit()?;
         Ok(task)
     }
+    /// Irreversibly erase user-controlled task payloads while preserving only lifecycle
+    /// metadata and immutable audit history. Audit events never contain the prompt,
+    /// transcript, checkpoint, artifact, or secret payload itself.
+    pub fn delete_task_payloads(&self, task_id: Uuid) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        let mut task = load_tx(&tx, task_id)?;
+        task.prompt.clear();
+        task.output = None;
+        task.verification = None;
+        task.failure_reason = None;
+        tx.execute(
+            "UPDATE tasks SET body=?2 WHERE id=?1",
+            params![task_id.to_string(), serde_json::to_string(&task)?],
+        )?;
+        tx.execute(
+            "DELETE FROM checkpoints WHERE task_id=?1",
+            [task_id.to_string()],
+        )?;
+        tx.execute(
+            "DELETE FROM artifacts WHERE task_id=?1",
+            [task_id.to_string()],
+        )?;
+        insert_event(
+            &tx,
+            task_id,
+            "payload.deleted",
+            "payload_ref=deleted; classes=prompt,transcript,verification,diagnostic,checkpoint,artifact",
+        )?;
+        tx.commit()?;
+        self.conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;")?;
+        Ok(())
+    }
+
     pub fn recover(&mut self) -> Result<usize> {
         let tx = self.conn.unchecked_transaction()?;
         let bodies = {

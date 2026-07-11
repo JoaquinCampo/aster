@@ -287,8 +287,8 @@ impl<A: PiAdapter> Runtime<A> {
             task,
             "checkpoint.saved",
             format!(
-                "id={} operation={} attempt={} phase={} digest={}",
-                checkpoint.id, op.id, op.attempt, phase, checkpoint.digest
+                "id={} operation={} attempt={} phase={} payload_ref=checkpoint:{}",
+                checkpoint.id, op.id, op.attempt, phase, checkpoint.id
             ),
         )
     }
@@ -314,8 +314,8 @@ impl<A: PiAdapter> Runtime<A> {
             task,
             "artifact.persisted",
             format!(
-                "id={} operation={} attempt={} name={} digest={} provenance={}",
-                artifact.id, op.id, op.attempt, artifact.name, artifact.digest, artifact.provenance
+                "id={} operation={} attempt={} name={} payload_ref=artifact:{} provenance={}",
+                artifact.id, op.id, op.attempt, artifact.name, artifact.id, artifact.provenance
             ),
         )
     }
@@ -353,11 +353,11 @@ impl<A: PiAdapter> Runtime<A> {
                     &task,
                     "artifact.inputs_resolved",
                     format!(
-                        "count={} digests={}",
+                        "count={} payload_refs={}",
                         inputs.len(),
                         inputs
                             .iter()
-                            .map(|a| a.digest.as_str())
+                            .map(|a| a.id.to_string())
                             .collect::<Vec<_>>()
                             .join(",")
                     ),

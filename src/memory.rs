@@ -39,7 +39,18 @@ pub struct MemoryStore {
 impl MemoryStore {
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let conn = Connection::open(path)?;
-        conn.execute_batch("CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,scope TEXT NOT NULL,key TEXT NOT NULL,value TEXT,provenance TEXT NOT NULL,digest TEXT NOT NULL,created TEXT NOT NULL,deleted TEXT,expires TEXT); CREATE UNIQUE INDEX IF NOT EXISTS memory_dedup ON memories(scope,digest) WHERE deleted IS NULL; CREATE TABLE IF NOT EXISTS memory_tombstones(id TEXT PRIMARY KEY,scope TEXT NOT NULL,digest TEXT NOT NULL,deleted TEXT NOT NULL); CREATE TABLE IF NOT EXISTS memory_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);")?;
+        conn.execute_batch("CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,scope TEXT NOT NULL,key TEXT NOT NULL,value TEXT,provenance TEXT NOT NULL,digest TEXT NOT NULL,created TEXT NOT NULL,deleted TEXT,expires TEXT); CREATE UNIQUE INDEX IF NOT EXISTS memory_dedup ON memories(scope,digest) WHERE deleted IS NULL; CREATE TABLE IF NOT EXISTS memory_tombstones(id TEXT PRIMARY KEY,scope TEXT NOT NULL,deleted TEXT NOT NULL); CREATE TABLE IF NOT EXISTS memory_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);")?;
+        // Older databases retained a keyed digest in tombstones. It is unnecessary for
+        // explaining deletion and becomes a durable searchable derivative, so migrate it away.
+        let tombstone_has_digest = conn
+            .prepare("PRAGMA table_info(memory_tombstones)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .iter()
+            .any(|column| column == "digest");
+        if tombstone_has_digest {
+            conn.execute_batch("ALTER TABLE memory_tombstones RENAME TO memory_tombstones_legacy; CREATE TABLE memory_tombstones(id TEXT PRIMARY KEY,scope TEXT NOT NULL,deleted TEXT NOT NULL); INSERT INTO memory_tombstones(id,scope,deleted) SELECT id,scope,deleted FROM memory_tombstones_legacy; DROP TABLE memory_tombstones_legacy;")?;
+        }
         let _ = conn.execute("ALTER TABLE memories ADD COLUMN expires TEXT", []);
         let digest_key = conn
             .query_row(
@@ -207,21 +218,23 @@ impl MemoryStore {
     }
     pub fn delete(&self, id: Uuid) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
-        let row = tx.query_row(
-            "SELECT scope,digest FROM memories WHERE id=?1 AND deleted IS NULL",
+        let scope = tx.query_row(
+            "SELECT scope FROM memories WHERE id=?1 AND deleted IS NULL",
             [id.to_string()],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+            |r| r.get::<_, String>(0),
         )?;
         let now = Utc::now().to_rfc3339();
         tx.execute(
-            "INSERT INTO memory_tombstones VALUES(?1,?2,?3,?4)",
-            params![id.to_string(), row.0, row.1, now],
+            "INSERT INTO memory_tombstones VALUES(?1,?2,?3)",
+            params![id.to_string(), scope, now],
         )?;
-        tx.execute(
-            "UPDATE memories SET value=NULL,deleted=?2 WHERE id=?1",
-            params![id.to_string(), now],
-        )?;
+        // Delete the entire payload row. Keeping key, provenance, keyed digests, or
+        // indexes would permit dictionary attacks or continued search/export access.
+        tx.execute("DELETE FROM memories WHERE id=?1", [id.to_string()])?;
         tx.commit()?;
+        // SQLite can otherwise leave deleted payload bytes in free pages/WAL files.
+        self.conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;")?;
         Ok(())
     }
     pub fn tombstone_count(&self) -> Result<u64> {

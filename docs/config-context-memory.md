@@ -12,7 +12,9 @@ A context manifest records every included item, source path, ecosystem, trust cl
 
 ## Memory
 
-Memory scopes are turn, task, session, user preference, project knowledge, and architecture decision; audit remains a separate append-only store. Entries have explicit provenance. Normalized content digests deduplicate within scope. Same-key differing values are surfaced as contradictions, not silently resolved. Amend creates a replacement after deleting the old payload. Delete atomically nulls content and writes a metadata-only tombstone (identifier, scope, digest, time); deleted payloads are neither active nor recoverable from the memory database.
+Memory scopes are turn, task, session, user preference, project knowledge, architecture decision, and audit history; runtime audit remains a separate append-only store. Entries have explicit provenance. A store-keyed digest deduplicates active content within scope. Same-key differing values are surfaced as contradictions, not silently resolved. Amend creates a replacement after deleting the old payload. Delete removes the complete payload row—including key, value, provenance, and digest—then writes a metadata-only tombstone containing only identifier, scope, and deletion time. It truncates WAL state and vacuums free pages so deleted text cannot remain in the database files. Startup migrates legacy digest-bearing tombstones to the non-reconstructable shape.
+
+The Memory TUI is a complete command surface. Commands are entered in the normal input line with `|` separators: `inspect`, `search|query`, `add|scope|key|value|provenance`, `amend|id|value|provenance`, `merge|id,id|key|value|provenance`, `contradictions|scope|key|value`, `expire`, `delete|id`, and `export`. Add performs deterministic deduplication. Every result or validation failure is visible in TUI status.
 
 ## Limitations
 

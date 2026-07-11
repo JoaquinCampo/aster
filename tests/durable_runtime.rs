@@ -281,3 +281,37 @@ async fn verified_success_deescalation_uses_complete_history_after_restart() {
             .any(|event| event.kind == "route.deescalated")
     );
 }
+
+#[tokio::test]
+async fn task_payload_deletion_preserves_only_non_reconstructable_audit_metadata() {
+    let d = tempfile::tempdir().unwrap();
+    let path = d.path().join("state.db");
+    let runtime = Runtime::new(
+        Store::open(&path).unwrap(),
+        Flaky(Arc::new(AtomicUsize::new(1))),
+    );
+    let secret = "violet low entropy password";
+    let task = runtime
+        .run(runtime.submit(secret.into()).unwrap())
+        .await
+        .unwrap();
+    runtime.store.delete_task_payloads(task.id).unwrap();
+    let scrubbed = runtime.store.task(task.id).unwrap().unwrap();
+    assert!(scrubbed.prompt.is_empty());
+    assert!(scrubbed.output.is_none() && scrubbed.verification.is_none());
+    assert!(runtime.store.checkpoints_for(task.id).unwrap().is_empty());
+    assert!(runtime.store.artifacts_for(task.id).unwrap().is_empty());
+    let audit = serde_json::to_string(&runtime.store.audit_for(task.id).unwrap()).unwrap();
+    for forbidden in [secret, "violet", "password", "completed: violet"] {
+        assert!(!audit.contains(forbidden));
+    }
+    drop(runtime);
+    for entry in std::fs::read_dir(d.path()).unwrap() {
+        let bytes = std::fs::read(entry.unwrap().path()).unwrap();
+        assert!(
+            !bytes
+                .windows(secret.len())
+                .any(|window| window == secret.as_bytes())
+        );
+    }
+}

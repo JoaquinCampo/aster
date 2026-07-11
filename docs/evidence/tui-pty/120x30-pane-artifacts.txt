@@ -1,24 +1,24 @@
-─── dusty-urial ────────────────────────────────────────────────────────────────────────────────────────────────────────
+─── quirky-python ──────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Audit ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │Audit events [log]                                                                                                    │
-│21:46:37 · route.outcome ·                                                                                            │
+│22:00:19 · route.outcome ·                                                                                            │
 │{"attempt":1,"decision_id":"v1:implementer:fake-terra:75:86","latency_ms":0,"model":"fake-terra","policy_revision":1,"│
 │role":"implementer","state":"Succeeded","tokens":16,"verified":true}                                                  │
-│21:46:37 · checkpoint.saved · id=be9cf9d3-88dd-47d3-a59c-20d36bb9b38c operation=b1b156a2-0bf1-4286-adec-726ae80b8acf  │
-│attempt=1 phase=operation-terminal digest=sha256:3280a6098896ddcd5d7117002f2bb1f4ff7c99038e4d4f26486ad399c3be10b6     │
-│21:46:37 · operation.completed · b1b156a2-0bf1-4286-adec-726ae80b8acf: Succeeded                                      │
-│21:46:37 · artifact.persisted · id=1aee5e4d-99b5-43d4-a196-929980ad7a9c operation=b1b156a2-0bf1-4286-adec-726ae80b8acf│
-│attempt=1 name=provider-output.txt digest=sha256:dbfeed491aba391ecf1501c1825ba582c3ac10615fe3f1e8d26c89b83e459d3b     │
+│22:00:19 · checkpoint.saved · id=4703c599-0cab-43a9-be0c-86903d0a4d39 operation=0be868ec-148f-45e7-85f7-df0a3d0000d9  │
+│attempt=1 phase=operation-terminal payload_ref=checkpoint:4703c599-0cab-43a9-be0c-86903d0a4d39                        │
+│22:00:19 · operation.completed · 0be868ec-148f-45e7-85f7-df0a3d0000d9: Succeeded                                      │
+│22:00:19 · artifact.persisted · id=7481ce67-fb7e-48ef-a7a6-2b522e48cdad operation=0be868ec-148f-45e7-85f7-df0a3d0000d9│
+│attempt=1 name=provider-output.txt payload_ref=artifact:7481ce67-fb7e-48ef-a7a6-2b522e48cdad                          │
 │provenance=provider:fake-terra;decision:v1:implementer:fake-terra:75:86                                               │
-│21:46:37 · operation.started · b1b156a2-0bf1-4286-adec-726ae80b8acf                                                   │
-│21:46:37 · checkpoint.saved · id=a171899a-3b8d-426a-b5ba-ee42453a33c2 operation=b1b156a2-0bf1-4286-adec-726ae80b8acf  │
-│attempt=1 phase=operation-intent digest=sha256:a205264309e3c1944b2c2a78a375330600db72e94d7145d7e8514141b206d422       │
-│21:46:37 · operation.intent · b1b156a2-0bf1-4286-adec-726ae80b8acf                                                    │
-│21:46:37 · task.queued · Task durably queued                                                                          │
-│21:46:37 · route.selected ·                                                                                           │
+│22:00:19 · operation.started · 0be868ec-148f-45e7-85f7-df0a3d0000d9                                                   │
+│22:00:19 · checkpoint.saved · id=d0dd20c8-2a66-48a9-819b-88ea4311172c operation=0be868ec-148f-45e7-85f7-df0a3d0000d9  │
+│attempt=1 phase=operation-intent payload_ref=checkpoint:d0dd20c8-2a66-48a9-819b-88ea4311172c                          │
+│22:00:19 · operation.intent · 0be868ec-148f-45e7-85f7-df0a3d0000d9                                                    │
+│22:00:19 · task.queued · Task durably queued                                                                          │
+│22:00:19 · route.selected ·                                                                                           │
 │{"budgets":{"timeout_ms":null,"token_budget":null},"decision_id":"v1:implementer:fake-terra:75:86","overrides":{"capab│
 │ilities":null,"context_tokens":null,"effort":null,"isolation":null,"lifecycle":null,"max_cost_micros":null,"max_latenc│
 │y_ms":null,"model":null,"output_tokens":null,"role":null,"tools":null,"verification":null},"policy_revision":1,"route"│

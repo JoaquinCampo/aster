@@ -1,5 +1,5 @@
 {
-  "session_id": "keen-stoat",
+  "session_id": "quirky-newt",
   "screen": "┌ ASTER ───────────────────────────────────────────────────┐\n│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│\n└──────────────────────────────────────────────────────────┘\n┌ Routing/Overrides · compact ─────────────────────────────┐\n│Route trace [detail]                                      │\n│decision: v1:implementer:fake-terra:75:86                 │\n│role: implementer                                         │\n│model: fake-terra                                         │\n│effort: medium                                            │\n│context tokens: 16000                                     │\n│output tokens: 4000                                       │\n│latency budget ms: 300                                    │\n└──────────────────────────────────────────────────────────┘\n┌──────────────────────────────────────────────────────────┐\n│>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│\n└──────────────────────────────────────────────────────────┘",
   "cursor": {
     "x": 23,
