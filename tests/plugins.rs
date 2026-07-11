@@ -15,12 +15,6 @@ use std::{
 #[derive(Clone, Default)]
 struct Broker(Arc<Mutex<Vec<BrokerRequest>>>);
 impl EffectBroker for Broker {
-    fn begin_spawn(&self, _: &str, _: &std::path::Path) -> Result<uuid::Uuid> {
-        Ok(uuid::Uuid::new_v4())
-    }
-    fn finish_spawn(&self, _: uuid::Uuid, _: bool) -> Result<()> {
-        Ok(())
-    }
     fn execute(&self, _: &str, request: BrokerRequest) -> Result<Value> {
         self.0.lock().unwrap().push(request);
         Ok(json!({"brokered": true}))

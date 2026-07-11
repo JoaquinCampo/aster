@@ -26,6 +26,11 @@ fn main() -> anyhow::Result<()> {
             hook(json!({"effect": effect}))
         }
         Some("hook-error") => hook(json!({"error":"fixture rejected"})),
+        Some("hook-crash") => {
+            println!(r#"{{"protocol":"aster-hook-v1","ready":true}}"#);
+            io::stdout().flush()?;
+            anyhow::bail!("injected hook crash")
+        }
         Some("hook-sleep") => {
             hook_after_ready(json!({"result":null}), Some(Duration::from_secs(2)))
         }

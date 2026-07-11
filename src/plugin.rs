@@ -189,10 +189,6 @@ pub struct BrokerRequest {
     pub arguments: Value,
 }
 pub trait EffectBroker: Send + Sync {
-    /// Persists legacy hook spawn intent. Plugin process launches use the core
-    /// effect broker instead.
-    fn begin_spawn(&self, plugin: &str, executable: &Path) -> Result<uuid::Uuid>;
-    fn finish_spawn(&self, operation_id: uuid::Uuid, succeeded: bool) -> Result<()>;
     fn execute(&self, plugin: &str, request: BrokerRequest) -> Result<Value>;
 }
 

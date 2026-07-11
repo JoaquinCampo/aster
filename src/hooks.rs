@@ -1,15 +1,14 @@
 use crate::{
-    effects::Capability,
+    effects::{Approval, Capability, EffectAdapter, EffectRequest, ScopedGrant},
     plugin::{BrokerRequest, EffectBroker},
 };
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     io::{BufRead, BufReader, Write},
     path::PathBuf,
-    process::{Command, Stdio},
     thread,
     time::Duration,
 };
@@ -76,21 +75,42 @@ pub trait LifecycleHooks: Send + Sync {
 pub struct HookSet<B: EffectBroker> {
     runner: HookRunner<B>,
     specs: Vec<HookSpec>,
+    process_store: PathBuf,
+    authorizations: BTreeMap<String, (ScopedGrant, Approval)>,
 }
 impl<B: EffectBroker> HookSet<B> {
-    pub fn new(broker: B, specs: Vec<HookSpec>) -> Self {
+    pub fn new(
+        broker: B,
+        specs: Vec<HookSpec>,
+        process_store: PathBuf,
+        authorizations: BTreeMap<String, (ScopedGrant, Approval)>,
+    ) -> Self {
         Self {
             runner: HookRunner::new(broker),
             specs,
+            process_store,
+            authorizations,
         }
     }
 }
 impl<B: EffectBroker + Send + Sync> LifecycleHooks for HookSet<B> {
     fn invoke(&self, trigger: HookTrigger, context: Value) -> Result<Vec<HookOutcome>> {
+        let store = crate::store::Store::open(&self.process_store)?;
+        let process_broker = crate::effects::EffectBroker {
+            store: &store,
+            adapter: crate::effects::SystemAdapter,
+        };
         self.specs
             .iter()
             .filter(|spec| spec.trigger == trigger)
-            .map(|spec| self.runner.run(spec, context.clone()))
+            .map(|spec| {
+                let (grant, approval) = self
+                    .authorizations
+                    .get(&spec.id)
+                    .context("hook process authorization unavailable")?;
+                self.runner
+                    .run(spec, context.clone(), &process_broker, grant, approval)
+            })
             .collect()
     }
 }
@@ -102,20 +122,30 @@ impl<B: EffectBroker> HookRunner<B> {
     pub fn new(broker: B) -> Self {
         Self { broker }
     }
-    pub fn run(&self, spec: &HookSpec, context: Value) -> Result<HookOutcome> {
+    pub fn run<A: EffectAdapter>(
+        &self,
+        spec: &HookSpec,
+        context: Value,
+        process_broker: &crate::effects::EffectBroker<'_, A>,
+        grant: &ScopedGrant,
+        approval: &Approval,
+    ) -> Result<HookOutcome> {
         if spec.id.is_empty() || spec.timeout_ms == 0 || !spec.executable.is_file() {
             bail!("invalid hook specification")
         }
-        let operation = self
-            .broker
-            .begin_spawn(&format!("hook:{}", spec.id), &spec.executable)?;
-        let mut child = Command::new(&spec.executable)
-            .args(&spec.args)
-            .env_clear()
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
+        let cwd = spec
+            .executable
+            .parent()
+            .context("hook executable has no parent directory")?
+            .to_path_buf();
+        let request = EffectRequest::Exec {
+            program: spec.executable.clone(),
+            args: spec.args.clone(),
+            env: BTreeMap::new(),
+            cwd,
+        };
+        let (_, mut child) = process_broker
+            .spawn_authorized_interactive(grant, Some(approval), request)
             .context("spawn hook")?;
         let stdout = BufReader::new(child.stdout.take().context("hook stdout unavailable")?);
         let (sender, receiver) = std::sync::mpsc::sync_channel(2);
@@ -138,14 +168,12 @@ impl<B: EffectBroker> HookRunner<B> {
             Err(_) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                self.broker.finish_spawn(operation, false)?;
                 return self.failure(spec, "hook readiness handshake timed out");
             }
         };
         if ready.trim_end() != r#"{"protocol":"aster-hook-v1","ready":true}"# {
             let _ = child.kill();
             let _ = child.wait();
-            self.broker.finish_spawn(operation, false)?;
             return self.failure(spec, "hook readiness handshake failed");
         }
         let payload = serde_json::to_vec(&HookInvocation {
@@ -163,7 +191,6 @@ impl<B: EffectBroker> HookRunner<B> {
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                self.broker.finish_spawn(operation, false)?;
                 return self.failure(spec, "hook timed out");
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -172,25 +199,21 @@ impl<B: EffectBroker> HookRunner<B> {
         };
         let status = child.wait()?;
         if !status.success() {
-            self.broker.finish_spawn(operation, false)?;
             return self.failure(spec, "hook process failed");
         }
         let response: HookResponse =
             serde_json::from_slice(&output).context("invalid hook response")?;
         if let Some(error) = response.error {
-            self.broker.finish_spawn(operation, false)?;
             return self.failure(spec, &error);
         }
         let result = if let Some(effect) = response.effect {
             if !spec.capabilities.contains(&effect.capability) {
-                self.broker.finish_spawn(operation, false)?;
                 return self.failure(spec, "hook requested undeclared capability");
             }
             self.broker.execute(&format!("hook:{}", spec.id), effect)?
         } else {
             response.result
         };
-        self.broker.finish_spawn(operation, true)?;
         Ok(HookOutcome::Completed(result))
     }
     fn failure(&self, spec: &HookSpec, message: &str) -> Result<HookOutcome> {
