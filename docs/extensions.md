@@ -26,7 +26,7 @@ Provide manifest/parser tests, denied-capability tests, timeout/crash/malformed-
 
 ## MCP stdio
 
-`StdioTransport` launches an MCP process with a cleared environment and exchanges newline-delimited JSON-RPC messages. `serve_stdio` exposes an existing `Server` over any buffered input/output pair and flushes every response. The deterministic fixture proves initialize, tool discovery, and tool invocation locally.
+`StdioTransport::spawn_authorized` launches an MCP process only through the core `EffectBroker`, using an exact `EffectRequest::Exec` that binds the scoped process grant and explicit approval to the executable, arguments, scrubbed environment, and working directory. The broker persists intent, start, authorization, and launch outcome before the transport exchanges newline-delimited JSON-RPC messages; denied or mutated requests never reach process creation. `serve_stdio` exposes an existing `Server` over any buffered input/output pair and flushes every response. The deterministic fixture proves initialize, tool discovery, and tool invocation locally.
 
 ## MCP Streamable HTTP
 

@@ -314,3 +314,110 @@ async fn approval_digest_and_secret_destination_are_exact() {
     );
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
+
+#[cfg(unix)]
+#[test]
+fn denied_mcp_stdio_launch_creates_no_process() {
+    use aster::mcp::StdioTransport;
+    let d = tempfile::tempdir().unwrap();
+    let marker = d.path().join("spawned");
+    let store = Store::open(d.path().join("db")).unwrap();
+    let broker = EffectBroker {
+        store: &store,
+        adapter: SystemAdapter,
+    };
+    let mut g = grant(d.path().to_owned());
+    g.capabilities.remove(&Capability::ProcessExec);
+    g.executable_allowlist.insert(PathBuf::from("/bin/sh"));
+    let args = vec!["-c".into(), format!("touch {}", marker.display())];
+    let env = BTreeMap::new();
+    let request = EffectRequest::Exec {
+        program: PathBuf::from("/bin/sh"),
+        args: args.clone(),
+        env: env.clone(),
+        cwd: d.path().to_owned(),
+    };
+    let approval =
+        Approval::for_request(g.task_id, g.id, &request, Utc::now() + Duration::minutes(1))
+            .unwrap();
+    assert!(
+        StdioTransport::spawn_authorized(
+            &broker,
+            &g,
+            &approval,
+            Path::new("/bin/sh"),
+            &args,
+            &env,
+            d.path()
+        )
+        .is_err()
+    );
+    assert!(!marker.exists());
+    let operations = store.operations_for(g.task_id).unwrap();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].state, aster::domain::OperationState::Failed);
+    assert!(
+        store
+            .effect_authorizations(operations[0].id)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn mcp_stdio_approval_is_invalidated_by_argument_or_environment_mutation() {
+    use aster::mcp::StdioTransport;
+    let d = tempfile::tempdir().unwrap();
+    let marker = d.path().join("spawned");
+    let store = Store::open(d.path().join("db")).unwrap();
+    let broker = EffectBroker {
+        store: &store,
+        adapter: SystemAdapter,
+    };
+    let mut g = grant(d.path().to_owned());
+    g.executable_allowlist.insert(PathBuf::from("/bin/sh"));
+    let approved_args = vec!["-c".into(), "exit 0".into()];
+    let approved_env = BTreeMap::from([("MODE".into(), "safe".into())]);
+    let approved = EffectRequest::Exec {
+        program: PathBuf::from("/bin/sh"),
+        args: approved_args.clone(),
+        env: approved_env.clone(),
+        cwd: d.path().to_owned(),
+    };
+    let approval = Approval::for_request(
+        g.task_id,
+        g.id,
+        &approved,
+        Utc::now() + Duration::minutes(1),
+    )
+    .unwrap();
+    let mutated_args = vec!["-c".into(), format!("touch {}", marker.display())];
+    assert!(
+        StdioTransport::spawn_authorized(
+            &broker,
+            &g,
+            &approval,
+            Path::new("/bin/sh"),
+            &mutated_args,
+            &approved_env,
+            d.path()
+        )
+        .is_err()
+    );
+    let mutated_env = BTreeMap::from([("MODE".into(), "unsafe".into())]);
+    assert!(
+        StdioTransport::spawn_authorized(
+            &broker,
+            &g,
+            &approval,
+            Path::new("/bin/sh"),
+            &approved_args,
+            &mutated_env,
+            d.path()
+        )
+        .is_err()
+    );
+    assert!(!marker.exists());
+    assert_eq!(store.operations_for(g.task_id).unwrap().len(), 2);
+}

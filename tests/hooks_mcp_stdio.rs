@@ -1,6 +1,10 @@
 use anyhow::Result;
 use aster::{
-    effects::Capability,
+    effects::{
+        Approval, Capability, EffectBroker as CoreEffectBroker, EffectRequest, FilesystemIsolation,
+        IsolationProfile, NetworkIsolation, ProcessIsolation, ScopedGrant, SecretIsolation,
+        SystemAdapter,
+    },
     hooks::{HookFailurePolicy, HookOutcome, HookRunner, HookSpec, HookTrigger, LifecycleHooks},
     mcp::{Client, StdioTransport},
     plugin::{BrokerRequest, EffectBroker},
@@ -8,9 +12,10 @@ use aster::{
     runtime::Runtime,
     store::Store,
 };
+use chrono::{Duration, Utc};
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -140,7 +145,54 @@ async fn runtime_invokes_task_tool_and_checkpoint_hooks_at_real_boundaries() -> 
 
 #[test]
 fn mcp_stdio_client_and_server_interoperate() -> Result<()> {
-    let transport = StdioTransport::spawn(&fixture(), &["mcp".into()])?;
+    let root = tempfile::tempdir()?;
+    let store = Store::open(root.path().join("db"))?;
+    let executable = fixture();
+    let grant = ScopedGrant {
+        id: uuid::Uuid::new_v4(),
+        task_id: uuid::Uuid::new_v4(),
+        capabilities: [Capability::ProcessExec].into_iter().collect(),
+        workspace: root.path().to_owned(),
+        worktrees: vec![],
+        executable_allowlist: [executable.clone()].into_iter().collect(),
+        network_allowlist: BTreeSet::new(),
+        external_allowlist: BTreeSet::new(),
+        secret_destinations: BTreeMap::new(),
+        isolation: IsolationProfile {
+            filesystem: FilesystemIsolation::None,
+            process: ProcessIsolation::ScrubbedEnvironment,
+            network: NetworkIsolation::Denied,
+            secrets: SecretIsolation::Denied,
+        },
+        expires_at: None,
+    };
+    let args = vec!["mcp".into()];
+    let env = BTreeMap::new();
+    let request = EffectRequest::Exec {
+        program: executable.clone(),
+        args: args.clone(),
+        env: env.clone(),
+        cwd: root.path().to_owned(),
+    };
+    let approval = Approval::for_request(
+        grant.task_id,
+        grant.id,
+        &request,
+        Utc::now() + Duration::minutes(1),
+    )?;
+    let broker = CoreEffectBroker {
+        store: &store,
+        adapter: SystemAdapter,
+    };
+    let transport = StdioTransport::spawn_authorized(
+        &broker,
+        &grant,
+        &approval,
+        &executable,
+        &args,
+        &env,
+        root.path(),
+    )?;
     let mut client = Client::new(transport);
     assert_eq!(client.initialize()?["serverInfo"]["name"], "fixture");
     assert_eq!(client.list_tools()?["tools"][0]["name"], "echo");

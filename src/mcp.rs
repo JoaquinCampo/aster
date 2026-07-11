@@ -380,29 +380,53 @@ pub struct StdioTransport {
     output: BufReader<ChildStdout>,
 }
 impl StdioTransport {
-    pub fn spawn(executable: &Path, args: &[String]) -> Result<Self> {
-        let mut child = Command::new(executable)
-            .args(args)
-            .env_clear()
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?;
-        let input = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("MCP stdin unavailable"))?;
-        let output = BufReader::new(
-            child
-                .stdout
-                .take()
-                .ok_or_else(|| anyhow::anyhow!("MCP stdout unavailable"))?,
-        );
-        Ok(Self {
-            child,
-            input,
-            output,
-        })
+    pub fn spawn_authorized<A: crate::effects::EffectAdapter>(
+        broker: &crate::effects::EffectBroker<'_, A>,
+        grant: &crate::effects::ScopedGrant,
+        approval: &crate::effects::Approval,
+        executable: &Path,
+        args: &[String],
+        env: &BTreeMap<String, String>,
+        cwd: &Path,
+    ) -> Result<Self> {
+        let request = crate::effects::EffectRequest::Exec {
+            program: executable.to_owned(),
+            args: args.to_vec(),
+            env: env.clone(),
+            cwd: cwd.to_owned(),
+        };
+        let (_, transport) = broker.launch_process_owned(
+            grant,
+            Some(approval),
+            request,
+            |program, args, env, cwd| {
+                let mut child = Command::new(program)
+                    .args(args)
+                    .env_clear()
+                    .envs(env)
+                    .current_dir(cwd)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .spawn()?;
+                let input = child
+                    .stdin
+                    .take()
+                    .ok_or_else(|| anyhow::anyhow!("MCP stdin unavailable"))?;
+                let output = BufReader::new(
+                    child
+                        .stdout
+                        .take()
+                        .ok_or_else(|| anyhow::anyhow!("MCP stdout unavailable"))?,
+                );
+                Ok(Self {
+                    child,
+                    input,
+                    output,
+                })
+            },
+        )?;
+        Ok(transport)
     }
 }
 impl Transport for StdioTransport {

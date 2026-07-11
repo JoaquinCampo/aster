@@ -412,6 +412,64 @@ impl<'a, A: EffectAdapter> EffectBroker<'a, A> {
         result.map(|output| (operation.id, output))
     }
 
+    /// Authorizes and records a process launch performed by a transport that
+    /// must retain the child for interactive I/O. The exact exec request is
+    /// bound to the approval before `launch` can run.
+    pub fn launch_process_owned<T>(
+        &self,
+        grant: &ScopedGrant,
+        approval: Option<&Approval>,
+        request: EffectRequest,
+        launch: impl FnOnce(&Path, &[String], &BTreeMap<String, String>, &Path) -> Result<T>,
+    ) -> Result<(Uuid, T)> {
+        use crate::domain::{Operation, OperationState};
+        let mut operation = Operation {
+            id: Uuid::new_v4(),
+            task_id: grant.task_id,
+            attempt: self.store.operations_for(grant.task_id)?.len() as u32 + 1,
+            state: OperationState::IntentRecorded,
+            retry_safe: false,
+            started_at: Utc::now(),
+            completed_at: None,
+        };
+        self.store.create_operation(&operation)?;
+        operation.state = OperationState::Running;
+        self.store.save_operation(&operation)?;
+
+        let result = (|| {
+            Policy::evaluate(grant, &request)?;
+            let hash = authorize_approval(grant, &request, approval)?;
+            let auth = OperationAuthorization {
+                id: Uuid::new_v4(),
+                operation_id: operation.id,
+                task_id: grant.task_id,
+                grant_id: grant.id,
+                approval_id: approval.map(|approval| approval.id),
+                request_hash: hash,
+                issued_at: Utc::now(),
+            };
+            self.store.authorize_effect(&auth)?;
+            match &request {
+                EffectRequest::Exec {
+                    program,
+                    args,
+                    env,
+                    cwd,
+                } => launch(program, args, env, cwd),
+                _ => bail!("process launch requires an exec request"),
+            }
+        })();
+
+        operation.completed_at = Some(Utc::now());
+        operation.state = if result.is_ok() {
+            OperationState::Succeeded
+        } else {
+            OperationState::Failed
+        };
+        self.store.save_operation(&operation)?;
+        result.map(|value| (operation.id, value))
+    }
+
     pub async fn execute_process_owned(
         &self,
         grant: &ScopedGrant,
