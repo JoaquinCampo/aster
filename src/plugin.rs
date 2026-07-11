@@ -1,3 +1,4 @@
+use crate::effects::Capability;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -39,7 +40,7 @@ pub struct PluginManifest {
     pub executable: PathBuf,
     pub protocol: ProtocolRequirement,
     #[serde(default)]
-    pub capabilities: BTreeSet<String>,
+    pub capabilities: BTreeSet<Capability>,
     #[serde(default)]
     pub mcp_endpoints: Vec<McpEndpoint>,
     #[serde(default)]
@@ -50,6 +51,8 @@ pub struct PluginManifest {
     pub rules: Vec<PathBuf>,
     #[serde(default = "default_timeout")]
     pub timeout_ms: u64,
+    #[serde(skip)]
+    install_root: PathBuf,
 }
 fn default_timeout() -> u64 {
     5_000
@@ -57,6 +60,14 @@ fn default_timeout() -> u64 {
 
 impl PluginManifest {
     pub fn load(path: &Path) -> Result<Self> {
+        let install_root = path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .canonicalize()
+            .context("canonicalize plugin install root")?;
+        Self::load_with_root(path, &install_root)
+    }
+    fn load_with_root(path: &Path, install_root: &Path) -> Result<Self> {
         let mut value: Self = toml::from_str(&fs::read_to_string(path)?)?;
         let root = path.parent().unwrap_or(Path::new("."));
         if value.executable.is_relative() {
@@ -71,6 +82,14 @@ impl PluginManifest {
             if rule.is_relative() {
                 *rule = root.join(&*rule);
             }
+        }
+        value.install_root = install_root.to_path_buf();
+        value.executable = confined_path(install_root, &value.executable, "executable")?;
+        if let Some(skill) = &mut value.skill {
+            *skill = confined_path(install_root, skill, "skill")?;
+        }
+        for rule in &mut value.rules {
+            *rule = confined_path(install_root, rule, "rule")?;
         }
         value.validate()?;
         Ok(value)
@@ -116,13 +135,30 @@ impl PluginManifest {
     }
 }
 
+fn confined_path(install_root: &Path, path: &Path, kind: &str) -> Result<PathBuf> {
+    if path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        bail!("plugin {kind} contains path traversal")
+    }
+    let canonical = path
+        .canonicalize()
+        .with_context(|| format!("canonicalize plugin {kind} {}", path.display()))?;
+    if !canonical.starts_with(install_root) {
+        bail!("plugin {kind} escapes install root")
+    }
+    Ok(canonical)
+}
+
 pub fn discover(roots: &[PathBuf]) -> Result<Vec<PluginManifest>> {
     let mut found = Vec::new();
     for root in roots {
         if !root.exists() {
             continue;
         }
-        for entry in fs::read_dir(root)? {
+        let install_root = root.canonicalize()?;
+        for entry in fs::read_dir(&install_root)? {
             let path = entry?.path();
             let manifest = if path.is_dir() {
                 path.join("plugin.toml")
@@ -130,7 +166,11 @@ pub fn discover(roots: &[PathBuf]) -> Result<Vec<PluginManifest>> {
                 path
             };
             if manifest.file_name().is_some_and(|n| n == "plugin.toml") {
-                found.push(PluginManifest::load(&manifest)?);
+                let plugin_root = manifest.parent().unwrap_or(&install_root).canonicalize()?;
+                if !plugin_root.starts_with(&install_root) {
+                    bail!("plugin manifest escapes install root")
+                }
+                found.push(PluginManifest::load_with_root(&manifest, &plugin_root)?);
             }
         }
     }
@@ -140,11 +180,15 @@ pub fn discover(roots: &[PathBuf]) -> Result<Vec<PluginManifest>> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrokerRequest {
-    pub capability: String,
+    pub capability: Capability,
     pub operation: String,
     pub arguments: Value,
 }
 pub trait EffectBroker: Send + Sync {
+    /// Persists spawn intent and returns its durable operation id before the
+    /// plugin process may be created.
+    fn begin_spawn(&self, plugin: &str, executable: &Path) -> Result<uuid::Uuid>;
+    fn finish_spawn(&self, operation_id: uuid::Uuid, succeeded: bool) -> Result<()>;
     fn execute(&self, plugin: &str, request: BrokerRequest) -> Result<Value>;
 }
 
@@ -183,6 +227,7 @@ pub struct PluginHost<B: EffectBroker> {
     input: Option<ChildStdin>,
     output: Option<BufReader<ChildStdout>>,
     next_id: u64,
+    spawn_operation: Option<uuid::Uuid>,
     health: Health,
 }
 impl<B: EffectBroker> PluginHost<B> {
@@ -195,6 +240,7 @@ impl<B: EffectBroker> PluginHost<B> {
             input: None,
             output: None,
             next_id: 1,
+            spawn_operation: None,
             health: Health::Disabled,
         }
     }
@@ -222,13 +268,24 @@ impl<B: EffectBroker> PluginHost<B> {
             bail!("plugin is disabled")
         }
         self.kill();
-        let mut child = Command::new(&self.manifest.executable)
+        let operation_id = self
+            .broker
+            .begin_spawn(&self.manifest.id, &self.manifest.executable)?;
+        self.spawn_operation = Some(operation_id);
+        let child_result = Command::new(&self.manifest.executable)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .env_clear()
-            .spawn()
-            .context("spawn plugin")?;
+            .spawn();
+        let mut child = match child_result {
+            Ok(child) => child,
+            Err(error) => {
+                self.spawn_operation = None;
+                self.broker.finish_spawn(operation_id, false)?;
+                return Err(error).context("spawn plugin");
+            }
+        };
         self.input = child.stdin.take();
         self.output = child.stdout.take().map(BufReader::new);
         self.child = Some(child);
@@ -281,7 +338,7 @@ impl<B: EffectBroker> PluginHost<B> {
         }
         if let Some(effect) = response.effect {
             if !self.manifest.capabilities.contains(&effect.capability) {
-                bail!("undeclared capability: {}", effect.capability)
+                bail!("undeclared capability: {:?}", effect.capability)
             }
             return self.broker.execute(&self.manifest.id, effect);
         }
@@ -310,6 +367,13 @@ impl<B: EffectBroker> PluginHost<B> {
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
             let _ = child.wait();
+        }
+        if let Some(operation_id) = self.spawn_operation.take() {
+            let succeeded = !matches!(
+                self.health,
+                Health::Crashed(_) | Health::TimedOut | Health::Unhealthy(_)
+            );
+            let _ = self.broker.finish_spawn(operation_id, succeeded);
         }
         self.input = None;
         self.output = None;

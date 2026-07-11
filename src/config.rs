@@ -40,6 +40,23 @@ impl Default for MemoryConfig {
         Self { enabled: true }
     }
 }
+#[derive(Debug, Clone, Default, Deserialize)]
+struct ConfigPatch {
+    version: Option<u32>,
+    context: Option<ContextPatch>,
+    memory: Option<MemoryPatch>,
+    #[serde(flatten)]
+    extensions: BTreeMap<String, toml::Value>,
+}
+#[derive(Debug, Clone, Default, Deserialize)]
+struct ContextPatch {
+    total_tokens: Option<u32>,
+    category_tokens: Option<BTreeMap<String, u32>>,
+}
+#[derive(Debug, Clone, Default, Deserialize)]
+struct MemoryPatch {
+    enabled: Option<bool>,
+}
 impl Config {
     pub fn validate(&self) -> Result<()> {
         if self.version != 1 {
@@ -51,15 +68,24 @@ impl Config {
         }
         Ok(())
     }
-    pub fn merge(&mut self, higher: Config) {
-        if higher.version != 0 {
-            self.version = higher.version
-        };
-        if higher.context != ContextConfig::default() {
-            self.context = higher.context
-        };
-        self.memory = higher.memory;
-        self.extensions.extend(higher.extensions);
+    fn apply(&mut self, patch: ConfigPatch) {
+        if let Some(version) = patch.version {
+            self.version = version;
+        }
+        if let Some(context) = patch.context {
+            if let Some(total_tokens) = context.total_tokens {
+                self.context.total_tokens = total_tokens;
+            }
+            if let Some(category_tokens) = context.category_tokens {
+                self.context.category_tokens = category_tokens;
+            }
+        }
+        if let Some(memory) = patch.memory
+            && let Some(enabled) = memory.enabled
+        {
+            self.memory.enabled = enabled;
+        }
+        self.extensions.extend(patch.extensions);
     }
 }
 #[derive(Debug, Clone)]
@@ -104,7 +130,9 @@ pub fn load_layered(paths: &[PathBuf]) -> Result<Config> {
     };
     for p in paths {
         if p.exists() {
-            out.merge(ConfigDocument::load(p)?.config)
+            let bytes = fs::read(p).with_context(|| format!("read {}", p.display()))?;
+            let patch: ConfigPatch = toml::from_str(std::str::from_utf8(&bytes)?)?;
+            out.apply(patch);
         }
     }
     out.validate()?;

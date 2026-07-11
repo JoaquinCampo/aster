@@ -3,6 +3,7 @@ use aster::{
     context::{discover, manifest_from_assets},
     memory::{MemoryScope, MemoryStore},
 };
+use sha2::Digest;
 use std::fs;
 #[test]
 fn config_unknown_roundtrip_and_conflict() {
@@ -83,4 +84,43 @@ fn memory_dedup_contradiction_and_delete_erases_payload() {
     s.delete(a).unwrap();
     assert!(s.active().unwrap().is_empty());
     assert_eq!(s.tombstone_count().unwrap(), 1);
+    let bytes = fs::read(d.path().join("m.db")).unwrap();
+    assert!(!bytes.windows(b"dark".len()).any(|window| window == b"dark"));
+    let plain_digest = format!("{:x}", sha2::Sha256::digest(b"dark"));
+    assert!(!String::from_utf8_lossy(&bytes).contains(&plain_digest));
+}
+
+#[test]
+fn sparse_layers_only_override_fields_they_set() {
+    let d = tempfile::tempdir().unwrap();
+    let base = d.path().join("base.toml");
+    let patch = d.path().join("patch.toml");
+    fs::write(&base, "version=1\n[context]\ntotal_tokens=123\n[context.category_tokens]\nrules=7\n[memory]\nenabled=false\n").unwrap();
+    fs::write(&patch, "[context]\ntotal_tokens=456\n").unwrap();
+    let config = load_layered(&[base, patch]).unwrap();
+    assert_eq!(config.context.total_tokens, 456);
+    assert_eq!(config.context.category_tokens["rules"], 7);
+    assert!(!config.memory.enabled);
+}
+
+#[test]
+fn discovery_is_contained_hierarchical_and_project_content_is_untrusted() {
+    let d = tempfile::tempdir().unwrap();
+    let nested = d.path().join("a/b");
+    fs::create_dir_all(nested.join(".agents/skills/x")).unwrap();
+    fs::create_dir_all(d.path().join(".claude/skills/x")).unwrap();
+    fs::write(d.path().join(".claude/skills/x/SKILL.md"), "root").unwrap();
+    fs::write(nested.join(".agents/skills/x/SKILL.md"), "nested").unwrap();
+    let assets = discover(d.path(), &nested).unwrap();
+    assert_eq!(assets.iter().filter(|a| a.supported).count(), 2);
+    let manifest = manifest_from_assets(&assets, 100).unwrap();
+    assert!(
+        manifest
+            .items
+            .iter()
+            .all(|item| item.provenance.trust == aster::context::Trust::UntrustedContent)
+    );
+
+    let outside = tempfile::tempdir().unwrap();
+    assert!(discover(d.path(), outside.path()).is_err());
 }

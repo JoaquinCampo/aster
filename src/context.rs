@@ -55,31 +55,38 @@ pub struct DiscoveredAsset {
 }
 
 pub fn discover(project_root: &Path, working_dir: &Path) -> Result<Vec<DiscoveredAsset>> {
+    let project_root = project_root.canonicalize()?;
+    let working_dir = working_dir.canonicalize()?;
+    if !working_dir.starts_with(&project_root) {
+        bail!("working directory is outside project root")
+    }
     let mut dirs = vec![];
-    let mut cur = working_dir.to_path_buf();
+    let mut cur = working_dir;
     loop {
         dirs.push(cur.clone());
         if cur == project_root {
             break;
         }
-        if !cur.pop() {
-            break;
-        }
+        cur = cur
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("working directory is outside project root"))?
+            .to_path_buf();
     }
     dirs.reverse();
     let mut merged: BTreeMap<PathBuf, DiscoveredAsset> = BTreeMap::new();
     for dir in dirs {
+        let scope = dir.strip_prefix(&project_root).unwrap_or(Path::new(""));
         for eco in [".agents", ".claude"] {
             let base = dir.join(eco);
             for name in ["AGENTS.md", "CLAUDE.md"] {
                 let p = base.join(name);
                 if p.is_file() {
-                    insert(&mut merged, &base, p, eco, true, None)
+                    insert(&mut merged, scope, &base, p, eco, true, None)
                 }
             }
             let skills = base.join("skills");
             if skills.is_dir() {
-                walk_skills(&skills, &base, eco, &mut merged)?
+                walk_skills(&skills, scope, &base, eco, &mut merged)?
             }
             if base.is_dir() {
                 for entry in fs::read_dir(&base)? {
@@ -92,6 +99,7 @@ pub fn discover(project_root: &Path, working_dir: &Path) -> Result<Vec<Discovere
                     {
                         insert(
                             &mut merged,
+                            scope,
                             &base,
                             p,
                             eco,
@@ -107,13 +115,15 @@ pub fn discover(project_root: &Path, working_dir: &Path) -> Result<Vec<Discovere
 }
 fn insert(
     map: &mut BTreeMap<PathBuf, DiscoveredAsset>,
+    scope: &Path,
     base: &Path,
     path: PathBuf,
     eco: &str,
     supported: bool,
     reason: Option<String>,
 ) {
-    let key = path.strip_prefix(base).unwrap_or(&path).to_path_buf();
+    let relative = path.strip_prefix(base).unwrap_or(&path);
+    let key = scope.join(relative);
     let asset = DiscoveredAsset {
         path,
         relative_key: key.clone(),
@@ -127,6 +137,7 @@ fn insert(
 }
 fn walk_skills(
     dir: &Path,
+    scope: &Path,
     base: &Path,
     eco: &str,
     map: &mut BTreeMap<PathBuf, DiscoveredAsset>,
@@ -134,9 +145,9 @@ fn walk_skills(
     for e in fs::read_dir(dir)? {
         let p = e?.path();
         if p.is_dir() {
-            walk_skills(&p, base, eco, map)?
+            walk_skills(&p, scope, base, eco, map)?
         } else if p.file_name().and_then(|x| x.to_str()) == Some("SKILL.md") {
-            insert(map, base, p, eco, true, None)
+            insert(map, scope, base, p, eco, true, None)
         }
     }
     Ok(())
@@ -152,7 +163,7 @@ pub fn manifest_from_assets(assets: &[DiscoveredAsset], budget: u32) -> Result<C
             provenance: Provenance {
                 path: a.path.clone(),
                 ecosystem: a.ecosystem.clone(),
-                trust: Trust::TrustedInstruction,
+                trust: Trust::UntrustedContent,
             },
         })
     }

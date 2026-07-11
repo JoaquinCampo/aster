@@ -25,12 +25,28 @@ pub struct Memory {
 }
 pub struct MemoryStore {
     conn: Connection,
+    digest_key: String,
 }
 impl MemoryStore {
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let conn = Connection::open(path)?;
-        conn.execute_batch("CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,scope TEXT NOT NULL,key TEXT NOT NULL,value TEXT,provenance TEXT NOT NULL,digest TEXT NOT NULL,created TEXT NOT NULL,deleted TEXT); CREATE UNIQUE INDEX IF NOT EXISTS memory_dedup ON memories(scope,digest) WHERE deleted IS NULL; CREATE TABLE IF NOT EXISTS memory_tombstones(id TEXT PRIMARY KEY,scope TEXT NOT NULL,digest TEXT NOT NULL,deleted TEXT NOT NULL);")?;
-        Ok(Self { conn })
+        conn.execute_batch("CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,scope TEXT NOT NULL,key TEXT NOT NULL,value TEXT,provenance TEXT NOT NULL,digest TEXT NOT NULL,created TEXT NOT NULL,deleted TEXT); CREATE UNIQUE INDEX IF NOT EXISTS memory_dedup ON memories(scope,digest) WHERE deleted IS NULL; CREATE TABLE IF NOT EXISTS memory_tombstones(id TEXT PRIMARY KEY,scope TEXT NOT NULL,digest TEXT NOT NULL,deleted TEXT NOT NULL); CREATE TABLE IF NOT EXISTS memory_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);")?;
+        let digest_key = conn
+            .query_row(
+                "SELECT value FROM memory_meta WHERE key='digest_key'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|_| {
+                let key = Uuid::new_v4().to_string();
+                conn.execute(
+                    "INSERT INTO memory_meta(key,value) VALUES('digest_key',?1)",
+                    [&key],
+                )
+                .expect("store digest key");
+                key
+            });
+        Ok(Self { conn, digest_key })
     }
     pub fn add(
         &self,
@@ -39,7 +55,7 @@ impl MemoryStore {
         value: &str,
         provenance: &str,
     ) -> Result<Uuid> {
-        let digest = digest(value);
+        let digest = digest(&self.digest_key, value);
         let existing = self.conn.query_row(
             "SELECT id FROM memories WHERE scope=?1 AND digest=?2 AND deleted IS NULL",
             params![scope_s(&scope), digest],
@@ -136,8 +152,12 @@ impl MemoryStore {
             .query_row("SELECT count(*) FROM memory_tombstones", [], |r| r.get(0))?)
     }
 }
-fn digest(v: &str) -> String {
-    format!("{:x}", Sha256::digest(v.trim().to_lowercase()))
+fn digest(key: &str, v: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(key.as_bytes());
+    digest.update([0]);
+    digest.update(v.trim().to_lowercase().as_bytes());
+    format!("{:x}", digest.finalize())
 }
 fn scope_s(s: &MemoryScope) -> String {
     serde_json::to_string(s).unwrap()

@@ -11,11 +11,17 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Capability {
+    #[serde(rename = "workspace.read")]
     FileRead,
+    #[serde(rename = "workspace.write")]
     FileWrite,
+    #[serde(rename = "process.exec")]
     ProcessExec,
+    #[serde(rename = "network")]
     Network,
+    #[serde(rename = "secret.read")]
     SecretRead,
+    #[serde(rename = "external")]
     External,
 }
 

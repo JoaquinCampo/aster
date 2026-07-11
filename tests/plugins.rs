@@ -1,5 +1,8 @@
 use anyhow::Result;
-use aster::plugin::{BrokerRequest, EffectBroker, Health, PluginHost, Registry, discover};
+use aster::{
+    effects::Capability,
+    plugin::{BrokerRequest, EffectBroker, Health, PluginHost, Registry, discover},
+};
 use serde_json::{Value, json};
 use std::{
     path::PathBuf,
@@ -9,6 +12,12 @@ use std::{
 #[derive(Clone, Default)]
 struct Broker(Arc<Mutex<Vec<BrokerRequest>>>);
 impl EffectBroker for Broker {
+    fn begin_spawn(&self, _: &str, _: &std::path::Path) -> Result<uuid::Uuid> {
+        Ok(uuid::Uuid::new_v4())
+    }
+    fn finish_spawn(&self, _: uuid::Uuid, _: bool) -> Result<()> {
+        Ok(())
+    }
     fn execute(&self, _: &str, request: BrokerRequest) -> Result<Value> {
         self.0.lock().unwrap().push(request);
         Ok(json!({"brokered": true}))
@@ -42,7 +51,7 @@ fn lifecycle_calls_and_effects_are_brokered() -> Result<()> {
         host.call("tool.effect", json!({"path": "README.md"}))?,
         json!({"brokered": true})
     );
-    assert_eq!(log.lock().unwrap()[0].capability, "workspace.read");
+    assert_eq!(log.lock().unwrap()[0].capability, Capability::FileRead);
     host.disable()?;
     assert_eq!(host.health(), &Health::Disabled);
     Ok(())
@@ -68,4 +77,22 @@ fn incompatible_protocol_is_rejected() {
         .replace("min_version = 1", "min_version = 2");
     std::fs::write(dir.path().join("plugin.toml"), text).unwrap();
     assert!(discover(&[dir.path().to_path_buf()]).is_err());
+}
+
+#[test]
+fn plugin_assets_cannot_escape_their_install_root() {
+    let installs = tempfile::tempdir().unwrap();
+    let plugin = installs.path().join("bad");
+    std::fs::create_dir(&plugin).unwrap();
+    std::fs::write(installs.path().join("outside.py"), "#!/usr/bin/env python3").unwrap();
+    let manifest = r#"id = "bad"
+version = "1"
+executable = "../outside.py"
+[protocol]
+name = "aster-plugin"
+min_version = 1
+max_version = 1
+"#;
+    std::fs::write(plugin.join("plugin.toml"), manifest).unwrap();
+    assert!(discover(&[installs.path().to_path_buf()]).is_err());
 }
