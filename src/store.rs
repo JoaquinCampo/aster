@@ -1,4 +1,7 @@
-use crate::domain::{AuditEvent, Operation, OperationState, Task, TaskState};
+use crate::{
+    domain::{AuditEvent, Operation, OperationState, Task, TaskState},
+    effects::OperationAuthorization,
+};
 use anyhow::{Result, bail};
 use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
@@ -15,6 +18,7 @@ impl Store {
           CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, body TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS audit(seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, task_id TEXT NOT NULL, body TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS operations(id TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, body TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS effect_authorizations(id TEXT PRIMARY KEY, operation_id TEXT NOT NULL, task_id TEXT NOT NULL, body TEXT NOT NULL);
           INSERT OR IGNORE INTO schema_migrations VALUES(1, datetime('now'));
           INSERT OR IGNORE INTO schema_migrations VALUES(2, datetime('now'));" )?;
         Ok(Self { conn })
@@ -97,6 +101,30 @@ impl Store {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         b.into_iter()
             .map(|v| Ok(serde_json::from_str(&v)?))
+            .collect()
+    }
+    pub fn authorize_effect(&self, auth: &OperationAuthorization) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO effect_authorizations(id,operation_id,task_id,body) VALUES(?1,?2,?3,?4)",
+            params![
+                auth.id.to_string(),
+                auth.operation_id.to_string(),
+                auth.task_id.to_string(),
+                serde_json::to_string(auth)?
+            ],
+        )?;
+        Ok(())
+    }
+    pub fn effect_authorizations(&self, operation_id: Uuid) -> Result<Vec<OperationAuthorization>> {
+        let mut statement = self.conn.prepare(
+            "SELECT body FROM effect_authorizations WHERE operation_id=?1 ORDER BY rowid",
+        )?;
+        let bodies = statement
+            .query_map([operation_id.to_string()], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        bodies
+            .into_iter()
+            .map(|body| Ok(serde_json::from_str(&body)?))
             .collect()
     }
     pub fn transition(

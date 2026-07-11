@@ -1,0 +1,331 @@
+use crate::store::Store;
+use anyhow::{Result, anyhow, bail};
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::{Path, PathBuf},
+};
+use uuid::Uuid;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Capability {
+    FileRead,
+    FileWrite,
+    ProcessExec,
+    Network,
+    SecretRead,
+    External,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IsolationProfile {
+    pub filesystem: FilesystemIsolation,
+    pub process: ProcessIsolation,
+    pub network: NetworkIsolation,
+    pub secrets: SecretIsolation,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum FilesystemIsolation {
+    None,
+    WorkspaceReadOnly,
+    WorkspaceReadWrite,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ProcessIsolation {
+    Denied,
+    ScrubbedEnvironment,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum NetworkIsolation {
+    Denied,
+    Allowlisted,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SecretIsolation {
+    Denied,
+    DestinationScoped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScopedGrant {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub capabilities: BTreeSet<Capability>,
+    pub workspace: PathBuf,
+    pub worktrees: Vec<PathBuf>,
+    pub executable_allowlist: BTreeSet<PathBuf>,
+    pub network_allowlist: BTreeSet<String>,
+    pub external_allowlist: BTreeSet<String>,
+    pub secret_destinations: BTreeMap<String, BTreeSet<String>>,
+    pub isolation: IsolationProfile,
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum EffectRequest {
+    ReadFile {
+        path: PathBuf,
+    },
+    WriteFile {
+        path: PathBuf,
+        data: Vec<u8>,
+    },
+    Exec {
+        program: PathBuf,
+        args: Vec<String>,
+        env: BTreeMap<String, String>,
+        cwd: PathBuf,
+    },
+    Network {
+        destination: String,
+        payload: Vec<u8>,
+    },
+    Secret {
+        name: String,
+        destination: String,
+    },
+    External {
+        service: String,
+        action: String,
+        payload: Vec<u8>,
+    },
+}
+impl EffectRequest {
+    fn capability(&self) -> Capability {
+        match self {
+            Self::ReadFile { .. } => Capability::FileRead,
+            Self::WriteFile { .. } => Capability::FileWrite,
+            Self::Exec { .. } => Capability::ProcessExec,
+            Self::Network { .. } => Capability::Network,
+            Self::Secret { .. } => Capability::SecretRead,
+            Self::External { .. } => Capability::External,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Approval {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub grant_id: Uuid,
+    pub request_hash: String,
+    pub expires_at: DateTime<Utc>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OperationAuthorization {
+    pub id: Uuid,
+    pub operation_id: Uuid,
+    pub task_id: Uuid,
+    pub grant_id: Uuid,
+    pub approval_id: Option<Uuid>,
+    pub request_hash: String,
+    pub issued_at: DateTime<Utc>,
+}
+
+pub fn request_hash(request: &EffectRequest) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(request)?)
+    ))
+}
+
+pub struct Policy;
+impl Policy {
+    pub fn evaluate(grant: &ScopedGrant, request: &EffectRequest) -> Result<()> {
+        if grant.task_id.is_nil() || grant.expires_at.is_some_and(|x| x <= Utc::now()) {
+            bail!("grant is invalid or expired")
+        }
+        if !grant.capabilities.contains(&request.capability()) {
+            bail!("capability denied")
+        }
+        match request {
+            EffectRequest::ReadFile { path } => {
+                if grant.isolation.filesystem == FilesystemIsolation::None {
+                    bail!("filesystem denied")
+                }
+                validate_path(grant, path, false)?;
+            }
+            EffectRequest::WriteFile { path, .. } => {
+                if grant.isolation.filesystem != FilesystemIsolation::WorkspaceReadWrite {
+                    bail!("filesystem write denied")
+                }
+                validate_path(grant, path, true)?;
+            }
+            EffectRequest::Exec { program, cwd, .. } => {
+                if grant.isolation.process != ProcessIsolation::ScrubbedEnvironment
+                    || !grant.executable_allowlist.contains(program)
+                {
+                    bail!("process denied")
+                }
+                validate_path(grant, cwd, false)?;
+            }
+            EffectRequest::Network { destination, .. } => {
+                if grant.isolation.network != NetworkIsolation::Allowlisted
+                    || !grant.network_allowlist.contains(destination)
+                {
+                    bail!("network destination denied")
+                }
+            }
+            EffectRequest::Secret { name, destination } => {
+                if grant.isolation.secrets != SecretIsolation::DestinationScoped
+                    || !grant
+                        .secret_destinations
+                        .get(name)
+                        .is_some_and(|d| d.contains(destination))
+                {
+                    bail!("secret destination denied")
+                }
+            }
+            EffectRequest::External { service, .. } => {
+                if !grant.external_allowlist.contains(service) {
+                    bail!("external service denied")
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn validate_path(grant: &ScopedGrant, path: &Path, allow_missing_leaf: bool) -> Result<()> {
+    if path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        bail!("path traversal denied")
+    }
+    let candidate = if allow_missing_leaf && !path.exists() {
+        let parent = path
+            .parent()
+            .ok_or_else(|| anyhow!("missing parent"))?
+            .canonicalize()?;
+        parent.join(
+            path.file_name()
+                .ok_or_else(|| anyhow!("missing filename"))?,
+        )
+    } else {
+        path.canonicalize()?
+    };
+    let mut roots = vec![grant.workspace.canonicalize()?];
+    for w in &grant.worktrees {
+        roots.push(w.canonicalize()?);
+    }
+    if !roots.iter().any(|r| candidate.starts_with(r)) {
+        bail!("path outside granted workspace")
+    }
+    Ok(())
+}
+
+#[async_trait]
+pub trait EffectAdapter: Send + Sync {
+    async fn read_file(&self, path: &Path) -> Result<Vec<u8>>;
+    async fn write_file(&self, path: &Path, data: &[u8]) -> Result<()>;
+    async fn exec(
+        &self,
+        program: &Path,
+        args: &[String],
+        env: &BTreeMap<String, String>,
+        cwd: &Path,
+    ) -> Result<Vec<u8>>;
+    async fn network(&self, destination: &str, payload: &[u8]) -> Result<Vec<u8>>;
+    async fn secret(&self, name: &str) -> Result<Vec<u8>>;
+    async fn external(&self, service: &str, action: &str, payload: &[u8]) -> Result<Vec<u8>>;
+}
+pub struct SystemAdapter;
+#[async_trait]
+impl EffectAdapter for SystemAdapter {
+    async fn read_file(&self, p: &Path) -> Result<Vec<u8>> {
+        Ok(tokio::fs::read(p).await?)
+    }
+    async fn write_file(&self, p: &Path, d: &[u8]) -> Result<()> {
+        Ok(tokio::fs::write(p, d).await?)
+    }
+    async fn exec(
+        &self,
+        p: &Path,
+        a: &[String],
+        e: &BTreeMap<String, String>,
+        cwd: &Path,
+    ) -> Result<Vec<u8>> {
+        let o = tokio::process::Command::new(p)
+            .args(a)
+            .env_clear()
+            .envs(e)
+            .current_dir(cwd)
+            .output()
+            .await?;
+        if !o.status.success() {
+            bail!("process failed: {}", o.status)
+        }
+        Ok(o.stdout)
+    }
+    async fn network(&self, _: &str, _: &[u8]) -> Result<Vec<u8>> {
+        bail!("no network transport configured")
+    }
+    async fn secret(&self, n: &str) -> Result<Vec<u8>> {
+        Ok(std::env::var(n)?.into_bytes())
+    }
+    async fn external(&self, _: &str, _: &str, _: &[u8]) -> Result<Vec<u8>> {
+        bail!("no external transport configured")
+    }
+}
+
+pub struct EffectBroker<'a, A: EffectAdapter> {
+    pub store: &'a Store,
+    pub adapter: A,
+}
+impl<'a, A: EffectAdapter> EffectBroker<'a, A> {
+    pub async fn execute(
+        &self,
+        operation_id: Uuid,
+        grant: &ScopedGrant,
+        approval: Option<&Approval>,
+        request: EffectRequest,
+    ) -> Result<Vec<u8>> {
+        Policy::evaluate(grant, &request)?;
+        let hash = request_hash(&request)?;
+        if let Some(a) = approval
+            && (a.task_id != grant.task_id
+                || a.grant_id != grant.id
+                || a.request_hash != hash
+                || a.expires_at <= Utc::now())
+        {
+            bail!("approval is not bound to this request")
+        }
+        let auth = OperationAuthorization {
+            id: Uuid::new_v4(),
+            operation_id,
+            task_id: grant.task_id,
+            grant_id: grant.id,
+            approval_id: approval.map(|a| a.id),
+            request_hash: hash,
+            issued_at: Utc::now(),
+        };
+        self.store.authorize_effect(&auth)?;
+        match request {
+            EffectRequest::ReadFile { path } => self.adapter.read_file(&path).await,
+            EffectRequest::WriteFile { path, data } => {
+                self.adapter.write_file(&path, &data).await?;
+                Ok(vec![])
+            }
+            EffectRequest::Exec {
+                program,
+                args,
+                env,
+                cwd,
+            } => self.adapter.exec(&program, &args, &env, &cwd).await,
+            EffectRequest::Network {
+                destination,
+                payload,
+            } => self.adapter.network(&destination, &payload).await,
+            EffectRequest::Secret { name, .. } => self.adapter.secret(&name).await,
+            EffectRequest::External {
+                service,
+                action,
+                payload,
+            } => self.adapter.external(&service, &action, &payload).await,
+        }
+    }
+}

@@ -1,6 +1,7 @@
 pub mod config;
 pub mod context;
 pub mod domain;
+pub mod effects;
 pub mod memory;
 pub mod provider;
 pub mod routing;
