@@ -15,7 +15,7 @@ Status vocabulary: **Implemented** means enforced behavior with cited evidence; 
 | R01 Cheapest eligible initial route and evidence-based escalation with compact handoff | M3 | Partial | hard/soft constraint evidence and typed no-route failures in `routing.rs`; routing tests | Deterministic static fixture profiles only; no persisted historical escalation/de-escalation loop or compact handoff |
 | R02 Router selects all nine execution dimensions per execution | M3 | Partial | route structures/tests | Tools, full isolation, lifecycle, and policies incomplete |
 | R03 Route visible, overridable, and route/escalation reason/signals/budget/outcome audited | M3/M6 | Partial | task events and rationale; vertical slice | Complete UI override and trace absent |
-| P01 Discover Codex bridge before adapter; document and integration-test full live contract and alias semantics | M2 | Partial | `provider-contract.md`, source inspection of `~/.grok/codex-bridge-rs`, `provider_contract` fixture tests | Source-backed contract and aliases documented; authenticated live generation/tool loop still unexercised |
+| P01 Discover Codex bridge before adapter; document and integration-test full live contract and alias semantics | M2 | Partial | `provider-contract.md`, source inspection of `~/.grok/codex-bridge-rs`, contract tests, live Sol smoke evidence | Source-backed contract, aliases, readiness, streaming, usage, and live Sol generation validated; live tool loop/error/cancellation matrix remains |
 | R04 Hybrid declarative/features/history routing; no silent policy mutation; reviewed recommendations | M3 | Not started | — | Current routing is static |
 | C01 Minimum sufficient provenance-aware context with trust/stale distinctions | M3 | Partial | `context.rs`; `config_context_memory` | Measurement and complete categories/invalidation incomplete |
 | C02 Inspectable manifests, compact loss-aware handoffs, size/duplication/relevance/rework metrics | M3/M6 | Partial | context manifest types/tests | Full UI, handoff, and metrics incomplete |
@@ -32,7 +32,7 @@ Status vocabulary: **Implemented** means enforced behavior with cited evidence; 
 | O02 Task pane, usage/budget, routing trace, audit, transcripts/artifacts, DAG/critical path | M6 | Partial | task pane/runtime data | Complete workspace absent |
 | G01 Files and complete TUI are consistent round-trippable config surfaces | M5/M6 | Partial | config parser/tests | Complete editor/round trip absent |
 | T01 No product telemetry; local logs/accounting only; provider destinations/context disclosed | M4/M6 | Partial | no telemetry dependency/path found; security/config docs | Negative architectural fact is not exhaustive runtime proof; destination UI incomplete |
-| P02 Codex Luna/Terra/Sol, xAI/Grok, generic OpenAI-compatible providers | M2 | Fixture-only | provider contract fixtures/tests | Codex/xAI live operation unavailable; do not claim support |
+| P02 Codex Luna/Terra/Sol, xAI/Grok, generic OpenAI-compatible providers | M2 | Partial | provider contract fixtures/tests; live Codex Sol smoke evidence | Codex Sol live generation validated; Luna/Terra and xAI/generic live operation remain |
 | P03 Bridge and env-reference authentication; no plaintext secrets/logs | M2/M4 | Partial | typed secret refs/broker tests; secret scanner | Live bridge auth and OS store not validated |
 | P04 Effort independently selectable; capabilities normalized and explicit | M2/M3 | Partial | provider/route types and tests | Live capability negotiation incomplete |
 | A01 Extensible roles including nine named built-ins and declared contracts/defaults/tools/verification/fallback/isolation/completion | M3 | Implemented | `Role::Custom`, nine declarative `RoleContract` entries, routing tests | Runtime policy does not yet load custom role contracts from config |
@@ -59,7 +59,7 @@ Status vocabulary: **Implemented** means enforced behavior with cited evidence; 
 | IW02 Complementary trivial direct request without subagent | M8 | Not started | — | Acceptance case absent |
 | AC01 Custom Rust TUI primary interface; Pi below custom control plane | M8 | Partial | Rust TUI/control-plane code | Live Pi absent |
 | AC02 Same role varies model/effort; dimensions independent | M8 | Partial | domain/route tests | Complete per-execution UI/config behavior absent |
-| AC03 Three provider families supported | M8 | Fixture-only | contract tests | Live Codex/xAI unavailable |
+| AC03 Three provider families supported | M8 | Partial | contract tests and live Codex Sol smoke evidence | Codex is partially live-validated; xAI and generic OpenAI remain fixture-only |
 | AC04 Hybrid auditable explainable overridable routing | M8 | Partial | rationale/event tests | Hybrid/history/override incomplete |
 | AC05 Durable DAG retries/persistence/recovery/pause/resume/cancel/budgets | M8 | Partial | runtime/store tests | Full DAG/lifecycle incomplete |
 | AC06 Task/usage/route/audit/context/artifact inspection | M8 | Partial | current TUI/runtime | Complete surfaces absent |
