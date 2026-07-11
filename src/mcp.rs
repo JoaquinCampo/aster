@@ -1,7 +1,12 @@
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    io::{BufRead, BufReader, Write},
+    path::Path,
+    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+};
 
 pub const JSONRPC_VERSION: &str = "2.0";
 pub const MCP_PROTOCOL_VERSION: &str = "2025-03-26";
@@ -160,6 +165,71 @@ impl Server {
         }
     }
 }
+pub struct StdioTransport {
+    child: Child,
+    input: ChildStdin,
+    output: BufReader<ChildStdout>,
+}
+impl StdioTransport {
+    pub fn spawn(executable: &Path, args: &[String]) -> Result<Self> {
+        let mut child = Command::new(executable)
+            .args(args)
+            .env_clear()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+        let input = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("MCP stdin unavailable"))?;
+        let output = BufReader::new(
+            child
+                .stdout
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("MCP stdout unavailable"))?,
+        );
+        Ok(Self {
+            child,
+            input,
+            output,
+        })
+    }
+}
+impl Transport for StdioTransport {
+    fn round_trip(&mut self, request: &str) -> Result<String> {
+        writeln!(self.input, "{request}")?;
+        self.input.flush()?;
+        let mut line = String::new();
+        if self.output.read_line(&mut line)? == 0 {
+            bail!("MCP server closed stdout")
+        }
+        Ok(line)
+    }
+}
+impl Drop for StdioTransport {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+pub fn serve_stdio<R: BufRead, W: Write>(
+    server: &Server,
+    mut input: R,
+    mut output: W,
+) -> Result<()> {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if input.read_line(&mut line)? == 0 {
+            return Ok(());
+        }
+        writeln!(output, "{}", server.handle(line.trim_end()))?;
+        output.flush()?;
+    }
+}
+
 pub struct Loopback<'a>(pub &'a Server);
 impl Transport for Loopback<'_> {
     fn round_trip(&mut self, request: &str) -> Result<String> {

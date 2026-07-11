@@ -2,6 +2,7 @@ pub mod config;
 pub mod context;
 pub mod domain;
 pub mod effects;
+pub mod hooks;
 pub mod mcp;
 pub mod memory;
 pub mod orchestration;

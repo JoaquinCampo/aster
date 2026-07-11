@@ -43,7 +43,7 @@ Status vocabulary: **Implemented** means enforced behavior with cited evidence; 
 | C04 `.claude`/`.agents` hierarchy with `.claude` conflict precedence, inventory and executable nested/conflict/partial fixtures | M3 | Partial | compatibility fixture and config/context tests | Full ecosystem inventory/unknown-feature matrix incomplete |
 | M02 Required seven memory scopes and inspect/search/add/amend/merge/dedupe/contradict/expire/delete/export/provenance | M5 | Implemented | `memory.rs`; `config_context_memory`, `v01_local_gaps` | Local API is complete; query/edit TUI remains tracked by UI requirements |
 | M03 Simple preference capture deterministic, no model call | M5 | Implemented | memory/config implementation tests | TUI editing still incomplete |
-| E01 MCP client/server, SKILL.md, hierarchical rules, hooks, installable plugins | M5 | Partial | `mcp.rs` JSON-RPC client/server and deterministic loopback conformance; plugin/compatibility tests | MCP stdio/HTTP transports and lifecycle hooks remain; baseline is not live interoperability |
+| E01 MCP client/server, SKILL.md, hierarchical rules, hooks, installable plugins | M5 | Partial | `mcp.rs` JSON-RPC plus stdio client/server; typed mediated hooks; deterministic child-process integration/security tests; plugin/compatibility tests | HTTP MCP, live third-party interoperability, and hook wiring into every runtime lifecycle transition remain |
 | E02 Extensions declare enforced capabilities; failure isolation; version/discovery/toggle/diagnostics | M5 | Partial | plugin manifest/host tests; `extensions.md` | Install/upgrade UX and complete diagnostics incomplete |
 | G02 Declarative/versionable/schema-validated/layered/precedence/migratable config; safe semantic TUI/file round trip with unknown fields/atomic/conflict detection | M5/M6 | Partial | config tests; `configuration.md` | TUI and full unknown-field/conflict behavior incomplete |
 | G03 Config covers providers/models/roles/routing/budgets/permissions/tools/MCP/skills/rules/hooks/plugins/paths/TUI/verification/concurrency/lifecycle | M5 | Partial | typed domain sections in `config.rs`; config tests | Domain settings remain generic maps and are not yet integrated with every subsystem or TUI |
@@ -67,7 +67,7 @@ Status vocabulary: **Implemented** means enforced behavior with cited evidence; 
 | AC08 Preferences/knowledge/task/audit persist with provenance | M8 | Partial | config/context/memory/store tests | Complete integrated stores/UI incomplete |
 | AC09 File/TUI config round trip | M8 | Not started | — | Typed file config alone is insufficient |
 | AC10 `.claude`/`.agents` accepted with precedence | M8 | Partial | fixture tests | Compatibility inventory incomplete |
-| AC11 MCP/skills/rules/hooks/plugins usable | M8 | Partial | rules/skill/plugin slices | MCP/hooks incomplete |
+| AC11 MCP/skills/rules/hooks/plugins usable | M8 | Partial | deterministic MCP stdio, typed mediated hook, rules/skill/plugin tests | HTTP/live MCP and complete runtime hook wiring remain |
 | AC12 No telemetry transmitted | M8 | Partial | source/dependency review; no telemetry path identified | Needs release audit/integration verification |
 | AC13 Test pyramid and CI gates pass | M8 | Blocked | local checks recorded per commit; workflow exists | Hosted CI/TUI E2E incomplete |
 | AC14 Representative benchmark results against baselines | M8 | Partial | `docs/routing-benchmark-v1.md`; deterministic routing tests | Fixture baseline exists; representative repeated provider evidence remains |
