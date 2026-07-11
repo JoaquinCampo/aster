@@ -37,8 +37,25 @@ fn proportional_templates_have_independent_parallel_checkers_and_bounded_fixers(
             .iter()
             .filter(|n| n.role == DagRole::Fixer)
             .count(),
-        3
+        0
     );
+    let failed: Vec<_> = dag
+        .nodes
+        .iter()
+        .filter(|n| n.role == DagRole::IndependentChecker)
+        .map(|n| n.id)
+        .collect();
+    let mut conditional = dag.clone();
+    conditional.append_fixer_round(&failed).unwrap();
+    assert_eq!(
+        conditional
+            .nodes
+            .iter()
+            .filter(|n| n.role == DagRole::Fixer)
+            .count(),
+        1
+    );
+    assert!(conditional.append_fixer_round(&[]).is_err());
     assert!(
         dag.nodes
             .iter()
@@ -110,6 +127,55 @@ fn final_evidence_preserves_non_pass_outcomes_and_bounds() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn high_risk_gate_stalls_and_handoffs_are_explicit() {
+    let policy = VerificationPolicy::proportional(Risk::High);
+    let reviews = (0..2)
+        .map(|_| ReviewEvidence {
+            checker_id: Uuid::new_v4(),
+            attempt: 1,
+            status: VerificationStatus::Passed,
+            rationale: "independent pass".into(),
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        policy
+            .gate(
+                &[
+                    check(VerificationStatus::Passed),
+                    check(VerificationStatus::Failed)
+                ],
+                &reviews
+            )
+            .is_err()
+    );
+    let handoff = Handoff {
+        objective: "repair".into(),
+        summary: "same failed check".into(),
+        constraints: vec!["do not weaken gate".into()],
+        decisions: vec![],
+        open_issues: vec!["failure".into()],
+        artifacts: vec![],
+    };
+    let mut detector = ProgressDetector::new(3).unwrap();
+    let task = Uuid::new_v4();
+    assert!(
+        detector
+            .observe(task, "same", handoff.clone())
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        detector
+            .observe(task, "same", handoff.clone())
+            .unwrap()
+            .is_none()
+    );
+    let evidence = detector.observe(task, "same", handoff).unwrap().unwrap();
+    assert_eq!(evidence.observations, 3);
+    assert!(evidence.reason.contains("stalled"));
 }
 
 #[test]

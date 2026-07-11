@@ -141,3 +141,24 @@ fn discovery_is_contained_hierarchical_and_project_content_is_untrusted() {
     let outside = tempfile::tempdir().unwrap();
     assert!(discover(d.path(), outside.path()).is_err());
 }
+
+#[test]
+fn tui_required_field_edits_are_validated_atomic_and_conflict_aware() {
+    let d = tempfile::tempdir().unwrap();
+    let path = d.path().join("edit.toml");
+    fs::write(&path, "version=1\n[context]\ntotal_tokens=100\n").unwrap();
+    let mut doc = ConfigDocument::load(&path).unwrap();
+    doc.edit_required("context.total_tokens", "200").unwrap();
+    doc.edit_required("routing.enabled", "true").unwrap();
+    doc.edit_required("verification.enabled", "true").unwrap();
+    doc.edit_required("lifecycle.enabled", "true").unwrap();
+    assert!(doc.edit_required("providers.secret", "x").is_err());
+    doc.save_atomic().unwrap();
+    let loaded = ConfigDocument::load(&path).unwrap();
+    assert_eq!(loaded.config.context.total_tokens, 200);
+    assert!(
+        loaded.config.routing.enabled
+            && loaded.config.verification.enabled
+            && loaded.config.lifecycle.enabled
+    );
+}

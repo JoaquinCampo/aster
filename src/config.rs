@@ -158,6 +158,17 @@ impl ConfigDocument {
             baseline_hash: hash(&bytes),
         })
     }
+    pub fn edit_required(&mut self, field: &str, value: &str) -> Result<()> {
+        match field {
+            "context.total_tokens" => self.config.context.total_tokens = value.parse()?,
+            "memory.enabled" => self.config.memory.enabled = value.parse()?,
+            "routing.enabled" => self.config.routing.enabled = value.parse()?,
+            "verification.enabled" => self.config.verification.enabled = value.parse()?,
+            "lifecycle.enabled" => self.config.lifecycle.enabled = value.parse()?,
+            _ => bail!("field is not editable in the TUI: {field}"),
+        }
+        self.config.validate()
+    }
     pub fn save_atomic(&mut self) -> Result<()> {
         let current = fs::read(&self.path).unwrap_or_default();
         if hash(&current) != self.baseline_hash {
