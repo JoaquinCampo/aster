@@ -599,7 +599,26 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
                 "complex architecture investigation",
                 "high risk security review",
             ][model.override_choice];
-            let route = Router::default().route(prompt);
+            let mut route = Router::default().route(prompt);
+            let preset = model.override_choice;
+            route.dimensions.context_tokens = [4_000, 16_000, 32_000][preset];
+            route.dimensions.output_tokens = [1_024, 4_096, 8_192][preset];
+            route.dimensions.capabilities = match preset {
+                0 => vec!["workspace:read".into()],
+                1 => vec!["workspace:read".into(), "workspace:write".into()],
+                _ => vec!["workspace:read".into(), "process:test".into()],
+            };
+            route.dimensions.tools = match preset {
+                0 => vec!["read".into()],
+                1 => vec!["read".into(), "edit".into(), "test".into()],
+                _ => vec!["read".into(), "search".into(), "test".into()],
+            };
+            route.dimensions.isolation =
+                vec![["workspace", "worktree", "read-only"][preset].into()];
+            route.dimensions.lifecycle = ["direct", "checkpointed", "maker-checker"][preset].into();
+            route.dimensions.verification =
+                ["output", "tests", "independent-security-check"][preset].into();
+            route.rationale = format!("operator all-dimension preset override {}", preset + 1);
             match Router::default().validate_route(&route) {
                 Ok(()) => apply_runtime(model, runtime.override_route(id, route)),
                 Err(e) => model.status = format!("route override rejected: {e}"),
@@ -719,7 +738,7 @@ fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
             "high-risk/security",
         ];
         format!(
-            "Route override editor [dialog]\nSelect validated preset (↑↓, Enter apply, Esc cancel)\n{}",
+            "Route override editor [dialog]\nAll dimensions are explicit and independently inspectable\nSelect validated preset (↑↓, Enter apply, Esc cancel)\n{}",
             choices
                 .iter()
                 .enumerate()
@@ -736,7 +755,7 @@ fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
             let critical = m.tasks.iter().max_by_key(|t| (t.updated_at-t.created_at).num_milliseconds()).map(|t| format!("{} ({} ms)",&t.id.to_string()[..8],(t.updated_at-t.created_at).num_milliseconds().max(0))).unwrap_or_else(|| "none".into());
             format!("DAG [graph] · duration-weighted critical path endpoint: {critical}\n{}", edges.join("\n"))
         }
-        Screen::Routing => selected.map(|t|format!("Route trace [detail]\ndecision: {}\nrole: {}\nmodel: {}\neffort: {}\nrationale: {}\neffects/escalations:\n{}\nPress o to edit override",t.route.decision_id,t.route.role,t.route.model,t.route.dimensions.effort,t.route.rationale,m.observability.audit.iter().filter(|e| e.task_id==t.id && (e.kind.contains("effect") || e.kind.contains("escalat") || e.kind.contains("route"))).map(|e|format!("{} · {}",e.kind,e.detail)).collect::<Vec<_>>().join("\n"))).unwrap_or("No task selected".into()),
+        Screen::Routing => selected.map(|t|format!("Route trace [detail]\ndecision: {}\nrole: {}\nmodel: {}\neffort: {}\ncontext tokens: {}\noutput tokens: {}\nlatency budget ms: {}\ncapabilities/permissions: {}\ntools: {}\nisolation: {}\nlifecycle: {}\nverification: {}\nrationale: {}\neffects/escalations/de-escalations/outcomes:\n{}\nPress o to edit all dimensions",t.route.decision_id,t.route.role,t.route.model,t.route.dimensions.effort,t.route.dimensions.context_tokens,t.route.dimensions.output_tokens,t.route.dimensions.max_latency_ms,t.route.dimensions.capabilities.join(", "),t.route.dimensions.tools.join(", "),t.route.dimensions.isolation.join(", "),t.route.dimensions.lifecycle,t.route.dimensions.verification,t.route.rationale,m.observability.audit.iter().filter(|e| e.task_id==t.id && (e.kind.contains("effect") || e.kind.contains("escalat") || e.kind.contains("outcome") || e.kind.contains("route"))).map(|e|format!("{} · {}",e.kind,e.detail)).collect::<Vec<_>>().join("\n"))).unwrap_or("No task selected".into()),
         Screen::Usage => selected.map(|t|format!("Usage and budgets [meter]\ntokens: {} / {}\nremaining: {}\nattempts: {} / {}\ntimeout: {} ms",t.tokens_used,t.token_budget.map(|x|x.to_string()).unwrap_or("unlimited".into()),t.token_budget.map(|b|b.saturating_sub(t.tokens_used).to_string()).unwrap_or("unlimited".into()),t.attempts,t.retry.max_attempts,t.timeout_ms.map(|x|x.to_string()).unwrap_or("none".into()))).unwrap_or("No usage".into()),
         Screen::Transcripts => selected.and_then(|t|t.output.clone()).unwrap_or("No transcript yet".into()),
         Screen::Audit => format!("Audit events [log]\n{}", m.observability.audit.iter().rev().map(|e|format!("{} · {} · {}",e.at.format("%H:%M:%S"),e.kind,e.detail)).collect::<Vec<_>>().join("\n")),
@@ -841,7 +860,25 @@ mod tests {
         ];
         for (screen, label) in cases {
             m.screen = screen;
-            assert!(render(120, 30, &m).contains(label), "missing {label}");
+            let rendered = render(120, 30, &m);
+            assert!(rendered.contains(label), "missing {label}");
+            if screen == Screen::Routing {
+                for dimension in [
+                    "role:",
+                    "model:",
+                    "effort:",
+                    "context tokens:",
+                    "output tokens:",
+                    "latency budget ms:",
+                    "capabilities/permissions:",
+                    "tools:",
+                    "isolation:",
+                    "lifecycle:",
+                    "verification:",
+                ] {
+                    assert!(rendered.contains(dimension), "missing {dimension}");
+                }
+            }
         }
     }
 
@@ -853,6 +890,7 @@ mod tests {
         assert_eq!(update_key(&mut m, KeyCode::Char('o')), Cmd::None);
         assert!(m.override_open);
         assert!(render(100, 24, &m).contains("Route override editor [dialog]"));
+        assert!(render(100, 24, &m).contains("All dimensions are explicit"));
         assert!(matches!(
             update_key(&mut m, KeyCode::Enter),
             Cmd::Override(_)

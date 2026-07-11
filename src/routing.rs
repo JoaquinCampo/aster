@@ -16,6 +16,12 @@ pub struct UserOverrides {
     pub model: Option<String>,
     pub effort: Option<Effort>,
     pub context_tokens: Option<u32>,
+    pub output_tokens: Option<u32>,
+    pub capabilities: Option<Vec<String>>,
+    pub tools: Option<Vec<String>>,
+    pub isolation: Option<Vec<String>>,
+    pub lifecycle: Option<String>,
+    pub verification: Option<String>,
     pub max_cost_micros: Option<u64>,
     pub max_latency_ms: Option<u64>,
 }
@@ -271,6 +277,12 @@ impl Router {
                 model: Some(route.model.clone()),
                 effort: Some(route.dimensions.effort),
                 context_tokens: Some(route.dimensions.context_tokens),
+                output_tokens: Some(route.dimensions.output_tokens),
+                capabilities: Some(route.dimensions.capabilities.clone()),
+                tools: Some(route.dimensions.tools.clone()),
+                isolation: Some(route.dimensions.isolation.clone()),
+                lifecycle: Some(route.dimensions.lifecycle.clone()),
+                verification: Some(route.dimensions.verification.clone()),
                 max_cost_micros: None,
                 max_latency_ms: Some(route.dimensions.max_latency_ms),
             },
@@ -403,16 +415,39 @@ impl Router {
                 dimensions: ExecutionDimensions {
                     effort,
                     context_tokens: requested_context,
-                    output_tokens: self.defaults.output_tokens,
+                    output_tokens: request
+                        .overrides
+                        .output_tokens
+                        .unwrap_or(self.defaults.output_tokens),
                     max_latency_ms: request
                         .overrides
                         .max_latency_ms
                         .unwrap_or(selected.latency_ms),
-                    capabilities: self.defaults.capabilities.clone(),
-                    tools: self.defaults.tools.clone(),
-                    isolation: self.defaults.isolation.clone(),
-                    lifecycle: self.defaults.lifecycle.clone(),
-                    verification: self.defaults.verification.clone(),
+                    capabilities: request
+                        .overrides
+                        .capabilities
+                        .clone()
+                        .unwrap_or_else(|| self.defaults.capabilities.clone()),
+                    tools: request
+                        .overrides
+                        .tools
+                        .clone()
+                        .unwrap_or_else(|| self.defaults.tools.clone()),
+                    isolation: request
+                        .overrides
+                        .isolation
+                        .clone()
+                        .unwrap_or_else(|| self.defaults.isolation.clone()),
+                    lifecycle: request
+                        .overrides
+                        .lifecycle
+                        .clone()
+                        .unwrap_or_else(|| self.defaults.lifecycle.clone()),
+                    verification: request
+                        .overrides
+                        .verification
+                        .clone()
+                        .unwrap_or_else(|| self.defaults.verification.clone()),
                 },
                 rationale: format!(
                     "deterministic policy; cheapest eligible profile meeting hard quality {required}; no persisted outcome history used"

@@ -1,32 +1,32 @@
-─── merry-gecko ────────────────────────────────────────────────────────────────────────────────────────────────────────
+─── fancy-ibis ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Audit ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │Audit events [log]                                                                                                    │
-│21:15:29 · route.overridden · operator changed execution route                                                        │
-│21:15:26 · operation.completed · ab7e2634-692f-4799-bbe8-0e8cad078af3: Succeeded                                      │
-│21:15:26 · operation.started · ab7e2634-692f-4799-bbe8-0e8cad078af3                                                   │
-│21:15:26 · operation.intent · ab7e2634-692f-4799-bbe8-0e8cad078af3                                                    │
-│21:15:26 · task.queued · Task durably queued                                                                          │
-│21:15:26 · route.selected · deterministic policy; cheapest eligible profile meeting hard quality 75; no persisted     │
-│outcome history used                                                                                                  │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
+│21:27:40 · route.outcome ·                                                                                            │
+│{"attempt":1,"decision_id":"v1:implementer:fake-terra:75:86","latency_ms":0,"model":"fake-terra","policy_revision":1,"│
+│role":"implementer","state":"Succeeded","tokens":16,"verified":true}                                                  │
+│21:27:40 · operation.completed · 4cc1e471-9c02-464b-b99e-2822120ab106: Succeeded                                      │
+│21:27:40 · operation.started · 4cc1e471-9c02-464b-b99e-2822120ab106                                                   │
+│21:27:40 · operation.intent · 4cc1e471-9c02-464b-b99e-2822120ab106                                                    │
+│21:27:40 · task.queued · Task durably queued                                                                          │
+│21:27:40 · route.selected ·                                                                                           │
+│{"budgets":{"timeout_ms":null,"token_budget":null},"decision_id":"v1:implementer:fake-terra:75:86","overrides":{"capab│
+│ilities":null,"context_tokens":null,"effort":null,"isolation":null,"lifecycle":null,"max_cost_micros":null,"max_latenc│
+│y_ms":null,"model":null,"output_tokens":null,"role":null,"tools":null,"verification":null},"policy_revision":1,"route"│
+│:{"decision_id":"v1:implementer:fake-terra:75:86","dimensions":{"capabilities":["workspace:read"],"context_tokens":160│
+│00,"effort":"medium","isolation":["process:none","network:denied","credentials:none"],"lifecycle":"run-to-completion-w│
+│ith-checkpoint","max_latency_ms":300,"output_tokens":4000,"tools":["read","search"],"verification":"deterministic-outp│
+│ut-check"},"model":"fake-terra","rationale":"deterministic policy; cheapest eligible profile meeting hard quality 75; │
+│no persisted outcome history                                                                                          │
+│used","role":"implementer"},"signals":[{"constraints":[{"constraint":"quality","detail":"60 >=                        │
+│75","kind":"Hard","satisfied":false},{"constraint":"context","detail":"8000 >=                                        │
+│86","kind":"Hard","satisfied":true},{"constraint":"cost","detail":"estimated                                          │
+│0","kind":"Hard","satisfied":true},{"constraint":"latency","detail":"profile                                          │
+│100ms","kind":"Hard","satisfied":true},{"constraint":"least-cost","detail":"estimated                                 │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │>   │ pause unavailable for Succeeded  │ Tab screens · ↑↓ select · p pause · s resume · x cancel · r retry · o overrid│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-─── running | cursor(21,11) | fullscreen:true | title:"" ───────────────────────────────────────────────────────────────
+─── running | cursor(86,25) | fullscreen:true | title:"" ───────────────────────────────────────────────────────────────

@@ -213,3 +213,60 @@ fn retry_override_and_operation_reconciliation_are_audited() {
     assert!(kinds.contains(&"task.retry_requested".into()));
     assert!(kinds.contains(&"retry.overridden".into()));
 }
+
+#[tokio::test]
+async fn failed_check_escalates_same_role_model_and_effort_and_persists_trace() {
+    let (_d, r) = runtime();
+    let task = r
+        .submit_with(
+            "retry".into(),
+            vec![],
+            RetryPolicy {
+                max_attempts: 2,
+                initial_backoff_ms: 0,
+                max_backoff_ms: 0,
+            },
+            None,
+            None,
+        )
+        .unwrap();
+    let initial = task.route.clone();
+    let done = r.run(task).await.unwrap();
+    assert_eq!(done.route.role, initial.role);
+    assert_ne!(done.route.model, initial.model);
+    assert_ne!(done.route.dimensions.effort, initial.dimensions.effort);
+    let events = r.store.audit_for(done.id).unwrap();
+    assert!(events.iter().any(|event| event.kind == "route.escalated"));
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == "route.outcome")
+            .count(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn verified_success_deescalation_uses_complete_history_after_restart() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("routing.db");
+    let counter = Arc::new(AtomicUsize::new(1));
+    {
+        let runtime = Runtime::new(Store::open(&path).unwrap(), Flaky(counter.clone()));
+        for prompt in ["one", "two", "three"] {
+            let task = runtime.submit(prompt.into()).unwrap();
+            assert_eq!(runtime.run(task).await.unwrap().state, TaskState::Succeeded);
+        }
+    }
+    let restarted = Runtime::new(Store::open(&path).unwrap(), Flaky(counter));
+    let task = restarted.submit("after restart".into()).unwrap();
+    assert!(task.route.rationale.contains("history de-escalated"));
+    assert!(
+        restarted
+            .store
+            .audit_for(task.id)
+            .unwrap()
+            .iter()
+            .any(|event| event.kind == "route.deescalated")
+    );
+}

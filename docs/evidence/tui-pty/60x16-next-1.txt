@@ -1,16 +1,16 @@
-─── brave-finch ────────────────────────────────────────────
+─── salty-ocelot ───────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│
 └──────────────────────────────────────────────────────────┘
 ┌ Tasks · compact ─────────────────────────────────────────┐
-│› e65f9318 Succeeded implement deterministic acceptance   │
+│› b66e6d41 Succeeded implement deterministic acceptance   │
 │evidence · Actions: pause=false resume=false cancel=false │
 │retry=false                                               │
-│  2e68fe9e TimedOut cenario:timeout · Actions: pause=false│
+│  ed673898 TimedOut cenario:timeout · Actions: pause=false│
 │resume=false cancel=false retry=true                      │
-│  76f30264 Failed cenario:permission-denied · Actions:    │
+│  11996bae Failed cenario:permission-denied · Actions:    │
 │pause=false resume=false cancel=false retry=true          │
-│  673e7be6 Cancelled cenario:in-flight-cancellation ·     │
+│  2d21ffd9 Cancelled cenario:in-flight-cancellation ·     │
 └──────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────┐
 │>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│

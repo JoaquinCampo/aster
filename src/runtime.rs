@@ -3,6 +3,7 @@ use crate::{
     hooks::{HookTrigger, LifecycleHooks},
     provider::PiAdapter,
     routing::{Router, RoutingDecision, RoutingRequest, UserOverrides},
+    routing_policy::OutcomeAggregate,
     store::Store,
 };
 use anyhow::{Result, bail};
@@ -91,15 +92,52 @@ impl<A: PiAdapter> Runtime<A> {
         timeout_ms: Option<u64>,
         token_budget: Option<u64>,
     ) -> Result<Task> {
-        let decision = self
+        let substantive = prompt.len() > 120
+            || ["implement", "refactor", "review", "debug"]
+                .iter()
+                .any(|word| prompt.to_ascii_lowercase().contains(word));
+        let base_quality = if substantive { 75 } else { 50 };
+        let mut required_quality = base_quality;
+        let initial = self
             .router
             .decide(RoutingRequest {
                 estimated_tokens: prompt.len() as u32 * 2,
                 prompt: prompt.clone(),
-                required_quality: 0,
+                required_quality,
                 overrides: overrides.clone(),
             })
             .map_err(anyhow::Error::new)?;
+        let outcomes = self.store.routing_outcomes(self.router.policy_revision)?;
+        let history: Vec<bool> = outcomes
+            .iter()
+            .filter(|o| o.role == initial.route.role)
+            .flat_map(|o| {
+                let failures = o.failures.min(usize::MAX as u64) as usize;
+                let successes = o.verified_successes.min(usize::MAX as u64) as usize;
+                std::iter::repeat_n(false, failures).chain(std::iter::repeat_n(true, successes))
+            })
+            .collect();
+        required_quality = Router::adapt_quality(required_quality, &history);
+        let mut decision = self
+            .router
+            .decide(RoutingRequest {
+                estimated_tokens: prompt.len() as u32 * 2,
+                prompt: prompt.clone(),
+                required_quality,
+                overrides: overrides.clone(),
+            })
+            .map_err(anyhow::Error::new)?;
+        if required_quality != base_quality {
+            let direction = if required_quality > base_quality {
+                "escalated"
+            } else {
+                "de-escalated"
+            };
+            decision.route.rationale.push_str(&format!(
+                "; complete persisted revision {} history {direction} quality from {base_quality} to {required_quality}",
+                self.router.policy_revision
+            ));
+        }
         self.submit_decision(
             prompt,
             decision,
@@ -110,6 +148,7 @@ impl<A: PiAdapter> Runtime<A> {
             token_budget,
         )
     }
+    #[allow(clippy::too_many_arguments)]
     fn submit_decision(
         &self,
         prompt: String,
@@ -149,6 +188,11 @@ impl<A: PiAdapter> Runtime<A> {
                 ("task.queued", "Task durably queued"),
             ],
         )?;
+        if task.route.rationale.contains("history de-escalated") {
+            self.event(&task, "route.deescalated", &task.route.rationale)?;
+        } else if task.route.rationale.contains("history escalated") {
+            self.event(&task, "route.escalated", &task.route.rationale)?;
+        }
         Ok(task)
     }
     pub fn submit_with(
@@ -166,6 +210,46 @@ impl<A: PiAdapter> Runtime<A> {
             retry,
             timeout_ms,
             token_budget,
+        )
+    }
+    fn record_routing_outcome(&self, task: &Task, latency_ms: u64) -> Result<()> {
+        let mut outcome = self
+            .store
+            .routing_outcomes(self.router.policy_revision)?
+            .into_iter()
+            .find(|o| o.role == task.route.role && o.model == task.route.model)
+            .unwrap_or(OutcomeAggregate {
+                policy_revision: self.router.policy_revision,
+                role: task.route.role.clone(),
+                model: task.route.model.clone(),
+                attempts: 0,
+                verified_successes: 0,
+                failures: 0,
+                total_cost_micros: 0,
+                total_latency_ms: 0,
+            });
+        outcome.attempts += 1;
+        outcome.total_latency_ms = outcome.total_latency_ms.saturating_add(latency_ms);
+        if task.state == TaskState::Succeeded {
+            outcome.verified_successes += 1;
+        } else {
+            outcome.failures += 1;
+        }
+        self.store.save_routing_outcome(&outcome)?;
+        self.event(
+            task,
+            "route.outcome",
+            serde_json::to_string(&serde_json::json!({
+                "policy_revision": self.router.policy_revision,
+                "decision_id": task.route.decision_id,
+                "role": task.route.role,
+                "model": task.route.model,
+                "verified": task.state == TaskState::Succeeded,
+                "state": task.state,
+                "attempt": task.attempts,
+                "tokens": task.tokens_used,
+                "latency_ms": latency_ms,
+            }))?,
         )
     }
     pub async fn run(&self, mut task: Task) -> Result<Task> {
@@ -254,9 +338,54 @@ impl<A: PiAdapter> Runtime<A> {
                 self.hook(&task, HookTrigger::OnFailure, "attempt_terminal")?;
             }
             self.store.finish_operation(&task, &op)?;
+            let latency_ms = op
+                .completed_at
+                .map(|end| (end - op.started_at).num_milliseconds().max(0) as u64)
+                .unwrap_or(0);
+            self.record_routing_outcome(&task, latency_ms)?;
             self.hook(&task, HookTrigger::OnCheckpoint, "operation_persisted")?;
             self.hook(&task, HookTrigger::AfterTask, "attempt_terminal")?;
             if task.state == TaskState::Failed && task.attempts < task.retry.max_attempts {
+                let prior = task.route.clone();
+                let decision = self
+                    .router
+                    .decide(RoutingRequest {
+                        prompt: task.prompt.clone(),
+                        required_quality: 85u8.saturating_add((task.attempts - 1) as u8 * 10),
+                        estimated_tokens: task.prompt.len() as u32 * 2,
+                        overrides: UserOverrides {
+                            role: Some(prior.role.clone()),
+                            effort: Some(match prior.dimensions.effort {
+                                crate::domain::Effort::Low => crate::domain::Effort::Medium,
+                                _ => crate::domain::Effort::High,
+                            }),
+                            context_tokens: Some(prior.dimensions.context_tokens),
+                            output_tokens: Some(prior.dimensions.output_tokens),
+                            capabilities: Some(prior.dimensions.capabilities.clone()),
+                            tools: Some(prior.dimensions.tools.clone()),
+                            isolation: Some(prior.dimensions.isolation.clone()),
+                            lifecycle: Some(prior.dimensions.lifecycle.clone()),
+                            verification: Some(prior.dimensions.verification.clone()),
+                            ..UserOverrides::default()
+                        },
+                    })
+                    .map_err(anyhow::Error::new)?;
+                task.route = decision.route;
+                task.route
+                    .rationale
+                    .push_str("; failed verification escalated quality and effort");
+                self.event(
+                    &task,
+                    "route.escalated",
+                    serde_json::json!({
+                        "from": prior,
+                        "to": task.route,
+                        "reason": task.verification,
+                        "signals": decision.evidence,
+                        "policy_revision": self.router.policy_revision,
+                    })
+                    .to_string(),
+                )?;
                 let delay = task
                     .retry
                     .initial_backoff_ms

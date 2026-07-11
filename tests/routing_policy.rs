@@ -40,6 +40,7 @@ fn safe_overrides_remain_independent() {
         context_tokens: Some(6_000),
         max_cost_micros: None,
         max_latency_ms: None,
+        ..UserOverrides::default()
     };
     let d = Router::default().decide(r).unwrap();
     assert_eq!(d.route.role, "reviewer");

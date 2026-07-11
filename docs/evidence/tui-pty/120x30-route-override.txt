@@ -1,32 +1,32 @@
-─── merry-gecko ────────────────────────────────────────────────────────────────────────────────────────────────────────
+─── fancy-ibis ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Routing/Overrides ───────────────────────────────────────────────────────────────────────────────────────────────────┐
 │Route trace [detail]                                                                                                  │
-│decision: v1:orchestrator:fake-luna:50:68                                                                             │
-│role: orchestrator                                                                                                    │
-│model: fake-luna                                                                                                      │
-│effort: low                                                                                                           │
-│rationale: deterministic policy; cheapest eligible profile meeting hard quality 50; no persisted outcome history used │
-│effects/escalations:                                                                                                  │
-│route.selected · deterministic policy; cheapest eligible profile meeting hard quality 75; no persisted outcome history│
-│used                                                                                                                  │
-│route.overridden · operator changed execution route                                                                   │
-│Press o to edit override                                                                                              │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
+│decision: v1:implementer:fake-terra:75:86                                                                             │
+│role: implementer                                                                                                     │
+│model: fake-terra                                                                                                     │
+│effort: medium                                                                                                        │
+│context tokens: 16000                                                                                                 │
+│output tokens: 4000                                                                                                   │
+│latency budget ms: 300                                                                                                │
+│capabilities/permissions: workspace:read                                                                              │
+│tools: read, search                                                                                                   │
+│isolation: process:none, network:denied, credentials:none                                                             │
+│lifecycle: run-to-completion-with-checkpoint                                                                          │
+│verification: deterministic-output-check                                                                              │
+│rationale: deterministic policy; cheapest eligible profile meeting hard quality 75; no persisted outcome history used │
+│effects/escalations/de-escalations/outcomes:                                                                          │
+│route.selected ·                                                                                                      │
+│{"budgets":{"timeout_ms":null,"token_budget":null},"decision_id":"v1:implementer:fake-terra:75:86","overrides":{"capab│
+│ilities":null,"context_tokens":null,"effort":null,"isolation":null,"lifecycle":null,"max_cost_micros":null,"max_latenc│
+│y_ms":null,"model":null,"output_tokens":null,"role":null,"tools":null,"verification":null},"policy_revision":1,"route"│
+│:{"decision_id":"v1:implementer:fake-terra:75:86","dimensions":{"capabilities":["workspace:read"],"context_tokens":160│
+│00,"effort":"medium","isolation":["process:none","network:denied","credentials:none"],"lifecycle":"run-to-completion-w│
+│ith-checkpoint","max_latency_ms":300,"output_tokens":4000,"tools":["read","search"],"verification":"deterministic-outp│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│>   │ Succeeded runtime state updated  │ Tab screens · ↑↓ select · p pause · s resume · x cancel · r retry · o overrid│
+│>   │ route override rejected: no eligible route: model override `fake-luna` violates hard constraints  │ Tab screens │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-─── running | cursor(25,14) | fullscreen:true | title:"" ───────────────────────────────────────────────────────────────
+─── running | cursor(119,25) | fullscreen:true | title:"" ──────────────────────────────────────────────────────────────

@@ -109,6 +109,34 @@ pub fn recommend(
         .collect()
 }
 
+pub fn apply_reviewed_revision_with_history(
+    current: &RoutingPolicy,
+    candidate: RoutingPolicy,
+    recommendation: &PolicyRecommendation,
+    complete_history: &[OutcomeAggregate],
+) -> Result<RoutingPolicy> {
+    let attempts: u64 = complete_history
+        .iter()
+        .filter(|outcome| {
+            outcome.policy_revision == current.revision && outcome.model == recommendation.model
+        })
+        .map(|outcome| outcome.attempts)
+        .sum();
+    if attempts != recommendation.evidence_attempts {
+        bail!(
+            "policy recommendation does not account for complete history: expected {attempts} attempts, reviewed {}",
+            recommendation.evidence_attempts
+        )
+    }
+    if complete_history
+        .iter()
+        .any(|outcome| outcome.policy_revision > current.revision)
+    {
+        bail!("history contains outcomes from a future policy revision")
+    }
+    apply_reviewed_revision(current, candidate, recommendation)
+}
+
 pub fn apply_reviewed_revision(
     current: &RoutingPolicy,
     candidate: RoutingPolicy,

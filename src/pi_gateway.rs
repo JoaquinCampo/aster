@@ -238,10 +238,14 @@ impl PiAdapter for PiGateway {
             prompt: prompt.to_owned(),
             model: route.model.clone(),
             effort,
-            context: Some(format!(
-                "role={} decision={}",
-                route.role, route.decision_id
-            )),
+            context: Some(
+                serde_json::json!({
+                    "role": route.role,
+                    "decision_id": route.decision_id,
+                    "execution_dimensions": route.dimensions,
+                })
+                .to_string(),
+            ),
             fixture_tool: None,
         };
         let allowed = route.dimensions.capabilities.iter().cloned().collect();

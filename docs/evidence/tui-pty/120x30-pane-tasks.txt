@@ -1,9 +1,9 @@
-─── merry-gecko ────────────────────────────────────────────────────────────────────────────────────────────────────────
+─── fancy-ibis ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Tasks ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│› e65f9318 Succeeded implement deterministic acceptance evidence · Actions: pause=false resume=false cancel=false     │
+│› b66e6d41 Succeeded implement deterministic acceptance evidence · Actions: pause=false resume=false cancel=false     │
 │retry=false                                                                                                           │
 │                                                                                                                      │
 │                                                                                                                      │

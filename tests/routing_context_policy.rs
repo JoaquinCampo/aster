@@ -41,6 +41,35 @@ fn versioned_policy_loads_and_learning_requires_reviewed_revision() {
         .is_err()
     );
     rec.reviewed = true;
+    assert!(
+        apply_reviewed_revision_with_history(
+            &policy,
+            RoutingPolicy {
+                revision: 2,
+                ..policy.clone()
+            },
+            &PolicyRecommendation {
+                evidence_attempts: 3,
+                ..rec.clone()
+            },
+            &outcomes,
+        )
+        .is_err()
+    );
+    assert_eq!(
+        apply_reviewed_revision_with_history(
+            &policy,
+            RoutingPolicy {
+                revision: 2,
+                ..policy.clone()
+            },
+            &rec,
+            &outcomes,
+        )
+        .unwrap()
+        .revision,
+        2
+    );
     assert_eq!(
         apply_reviewed_revision(
             &policy,
