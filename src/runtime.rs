@@ -1,5 +1,6 @@
 use crate::{
     domain::{AuditEvent, Operation, OperationState, RetryPolicy, Route, Task, TaskState},
+    hooks::{HookTrigger, LifecycleHooks},
     provider::PiAdapter,
     routing::Router,
     store::Store,
@@ -9,6 +10,7 @@ use chrono::Utc;
 use futures_util::future::join_all;
 use std::{
     collections::{HashMap, HashSet},
+    sync::Arc,
     time::Duration,
 };
 use uuid::Uuid;
@@ -18,6 +20,7 @@ pub struct Runtime<A: PiAdapter> {
     pub adapter: A,
     router: Router,
     concurrency: usize,
+    hooks: Option<Arc<dyn LifecycleHooks>>,
 }
 impl<A: PiAdapter> Runtime<A> {
     pub fn new(store: Store, adapter: A) -> Self {
@@ -26,7 +29,34 @@ impl<A: PiAdapter> Runtime<A> {
             adapter,
             router: Router::default(),
             concurrency: 4,
+            hooks: None,
         }
+    }
+    pub fn with_hooks(mut self, hooks: Arc<dyn LifecycleHooks>) -> Self {
+        self.hooks = Some(hooks);
+        self
+    }
+    fn hook(&self, task: &Task, trigger: HookTrigger, phase: &str) -> Result<()> {
+        let Some(hooks) = &self.hooks else {
+            return Ok(());
+        };
+        let outcomes = hooks.invoke(
+            trigger,
+            serde_json::json!({
+                "task_id": task.id,
+                "phase": phase,
+                "state": task.state,
+                "attempt": task.attempts,
+            }),
+        )?;
+        self.event(
+            task,
+            "hook.invoked",
+            format!(
+                "trigger={trigger:?} phase={phase} outcomes={}",
+                outcomes.len()
+            ),
+        )
     }
     pub fn with_concurrency(mut self, n: usize) -> Self {
         self.concurrency = n.max(1);
@@ -102,9 +132,11 @@ impl<A: PiAdapter> Runtime<A> {
                 completed_at: None,
             };
             self.store.start_operation(&task, &op)?;
+            self.hook(&task, HookTrigger::BeforeTask, "attempt_started")?;
             op.state = OperationState::Running;
             self.store.save_operation(&op)?;
             self.event(&task, "operation.started", op.id.to_string())?;
+            self.hook(&task, HookTrigger::BeforeTool, "provider_execute")?;
             let result = match task.timeout_ms {
                 Some(ms) => match tokio::time::timeout(
                     Duration::from_millis(ms),
@@ -121,6 +153,7 @@ impl<A: PiAdapter> Runtime<A> {
                     .await
                     .map(Some),
             };
+            self.hook(&task, HookTrigger::AfterTool, "provider_execute")?;
             match result {
                 Ok(None) => {
                     task.state = TaskState::TimedOut;
@@ -154,7 +187,12 @@ impl<A: PiAdapter> Runtime<A> {
             }
             op.completed_at = Some(Utc::now());
             task.updated_at = Utc::now();
+            if matches!(task.state, TaskState::Failed | TaskState::TimedOut) {
+                self.hook(&task, HookTrigger::OnFailure, "attempt_terminal")?;
+            }
             self.store.finish_operation(&task, &op)?;
+            self.hook(&task, HookTrigger::OnCheckpoint, "operation_persisted")?;
+            self.hook(&task, HookTrigger::AfterTask, "attempt_terminal")?;
             if task.state == TaskState::Failed && task.attempts < task.retry.max_attempts {
                 let delay = task
                     .retry

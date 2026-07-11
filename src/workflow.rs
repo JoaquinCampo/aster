@@ -175,6 +175,25 @@ impl MakerCheckerFixerDag {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CheckerVerdict {
+    pub status: VerificationStatus,
+    pub rationale: String,
+}
+impl CheckerVerdict {
+    pub fn decode(output: &str) -> Result<Self> {
+        let verdict: Self = serde_json::from_str(output)
+            .map_err(|e| anyhow::anyhow!("invalid checker verdict: {e}"))?;
+        if verdict.rationale.trim().is_empty() {
+            bail!("checker verdict rationale is empty")
+        }
+        Ok(verdict)
+    }
+    pub fn requires_fix(&self) -> bool {
+        self.status != VerificationStatus::Passed
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReviewEvidence {
     pub checker_id: Uuid,
     pub attempt: u32,

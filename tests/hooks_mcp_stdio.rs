@@ -1,9 +1,12 @@
 use anyhow::Result;
 use aster::{
     effects::Capability,
-    hooks::{HookFailurePolicy, HookOutcome, HookRunner, HookSpec, HookTrigger},
+    hooks::{HookFailurePolicy, HookOutcome, HookRunner, HookSpec, HookTrigger, LifecycleHooks},
     mcp::{Client, StdioTransport},
     plugin::{BrokerRequest, EffectBroker},
+    provider::FakePiAdapter,
+    runtime::Runtime,
+    store::Store,
 };
 use serde_json::{Value, json};
 use std::{
@@ -91,6 +94,35 @@ fn hook_effects_require_declaration_and_use_broker() -> Result<()> {
     assert_eq!(log.lock().unwrap()[0].capability, Capability::FileRead);
     Ok(())
 }
+#[derive(Default)]
+struct Recorder(Mutex<Vec<HookTrigger>>);
+impl LifecycleHooks for Recorder {
+    fn invoke(&self, trigger: HookTrigger, _: Value) -> Result<Vec<HookOutcome>> {
+        self.0.lock().unwrap().push(trigger);
+        Ok(vec![])
+    }
+}
+
+#[tokio::test]
+async fn runtime_invokes_task_tool_and_checkpoint_hooks_at_real_boundaries() -> Result<()> {
+    let recorder = Arc::new(Recorder::default());
+    let runtime =
+        Runtime::new(Store::open(":memory:")?, FakePiAdapter).with_hooks(recorder.clone());
+    let task = runtime.submit("hook integration".into())?;
+    runtime.run(task).await?;
+    assert_eq!(
+        *recorder.0.lock().unwrap(),
+        vec![
+            HookTrigger::BeforeTask,
+            HookTrigger::BeforeTool,
+            HookTrigger::AfterTool,
+            HookTrigger::OnCheckpoint,
+            HookTrigger::AfterTask
+        ]
+    );
+    Ok(())
+}
+
 #[test]
 fn mcp_stdio_client_and_server_interoperate() -> Result<()> {
     let transport = StdioTransport::spawn(&fixture(), &["mcp".into()])?;

@@ -1,12 +1,14 @@
 use aster::{
+    domain::Route,
     mcp::{Client, Loopback, MCP_PROTOCOL_VERSION, Server},
     memory::{MemoryScope, MemoryStore},
     orchestration::DelegationPolicy,
-    provider::FakePiAdapter,
+    provider::{ExecutionResult, FakePiAdapter, PiAdapter},
     runtime::Runtime,
     store::Store,
     workflow::{Risk, VerificationPolicy},
 };
+use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use serde_json::json;
 
@@ -69,6 +71,55 @@ fn delegation_is_bounded() {
     assert!(p.validate(2, 0, 1).is_err());
     assert!(p.validate(0, 2, 2).is_err());
 }
+struct FailingChecker;
+#[async_trait]
+impl PiAdapter for FailingChecker {
+    async fn execute(&self, prompt: &str, _: &Route) -> anyhow::Result<ExecutionResult> {
+        let output = if prompt.starts_with("deterministic checker")
+            || prompt.starts_with("independent checker")
+        {
+            json!({"status":"Failed","rationale":"fixture failure"}).to_string()
+        } else {
+            format!("completed: {prompt}")
+        };
+        Ok(ExecutionResult {
+            output,
+            usage_tokens: 1,
+        })
+    }
+}
+
+#[tokio::test]
+async fn checker_verdict_conditionally_schedules_one_bounded_fixer() {
+    let rt = Runtime::new(Store::open(":memory:").unwrap(), FailingChecker);
+    let run = rt
+        .run_maker_checker_fixer(
+            "repair",
+            VerificationPolicy::proportional(Risk::Medium),
+            DelegationPolicy::default(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        run.checker_verdicts
+            .iter()
+            .all(|(_, verdict)| verdict.requires_fix())
+    );
+    assert_eq!(
+        run.dag
+            .nodes
+            .iter()
+            .filter(|node| node.role == aster::workflow::DagRole::Fixer)
+            .count(),
+        1
+    );
+    assert!(
+        run.results
+            .iter()
+            .any(|task| task.prompt.starts_with("fixer"))
+    );
+}
+
 #[tokio::test]
 async fn integrated_maker_checker_fixer_dag_executes() {
     let rt = Runtime::new(Store::open(":memory:").unwrap(), FakePiAdapter);

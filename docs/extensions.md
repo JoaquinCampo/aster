@@ -22,7 +22,7 @@ Provide manifest/parser tests, denied-capability tests, timeout/crash/malformed-
 
 ## Lifecycle hooks
 
-`HookSpec` binds an executable to one typed trigger (`before_task`, `after_task`, `before_tool`, `after_tool`, `on_failure`, or `on_checkpoint`), a non-zero timeout, an explicit failure policy, and declared capabilities. Hook processes inherit no environment. They receive one JSON invocation on stdin and return one JSON response on stdout. `continue` records a non-fatal outcome; `fail_execution` propagates failure. Effects are rejected unless declared and, when declared, are passed to `EffectBroker`; declarations never bypass broker authorization or audit.
+`HookSpec` binds an executable to one typed trigger (`before_task`, `after_task`, `before_tool`, `after_tool`, `on_failure`, or `on_checkpoint`), a non-zero timeout, an explicit failure policy, and declared capabilities. `HookSet` is installed on `Runtime` and invokes these triggers at actual attempt start/end, provider execution boundaries, failure handling, and the durable post-operation checkpoint. Each invocation is appended to task audit evidence. Hook processes inherit no environment. They receive one JSON invocation on stdin and return one JSON response on stdout. `continue` records a non-fatal outcome; `fail_execution` propagates failure. Effects are rejected unless declared and, when declared, are passed to `EffectBroker`; declarations never bypass broker authorization or audit.
 
 ## MCP stdio
 

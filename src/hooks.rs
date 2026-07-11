@@ -69,6 +69,32 @@ pub enum HookOutcome {
     Continued(String),
 }
 
+pub trait LifecycleHooks: Send + Sync {
+    fn invoke(&self, trigger: HookTrigger, context: Value) -> Result<Vec<HookOutcome>>;
+}
+
+pub struct HookSet<B: EffectBroker> {
+    runner: HookRunner<B>,
+    specs: Vec<HookSpec>,
+}
+impl<B: EffectBroker> HookSet<B> {
+    pub fn new(broker: B, specs: Vec<HookSpec>) -> Self {
+        Self {
+            runner: HookRunner::new(broker),
+            specs,
+        }
+    }
+}
+impl<B: EffectBroker + Send + Sync> LifecycleHooks for HookSet<B> {
+    fn invoke(&self, trigger: HookTrigger, context: Value) -> Result<Vec<HookOutcome>> {
+        self.specs
+            .iter()
+            .filter(|spec| spec.trigger == trigger)
+            .map(|spec| self.runner.run(spec, context.clone()))
+            .collect()
+    }
+}
+
 pub struct HookRunner<B: EffectBroker> {
     broker: B,
 }

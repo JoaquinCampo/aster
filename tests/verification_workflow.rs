@@ -179,6 +179,17 @@ fn high_risk_gate_stalls_and_handoffs_are_explicit() {
 }
 
 #[test]
+fn provider_checker_output_decodes_to_typed_verdicts() {
+    let passed =
+        CheckerVerdict::decode(r#"{"status":"Passed","rationale":"all checks passed"}"#).unwrap();
+    assert!(!passed.requires_fix());
+    let failed =
+        CheckerVerdict::decode(r#"{"status":"Failed","rationale":"test failed"}"#).unwrap();
+    assert!(failed.requires_fix());
+    assert!(CheckerVerdict::decode("PASS").is_err());
+}
+
+#[test]
 fn all_terminal_check_states_remain_distinct() {
     let values = [
         VerificationStatus::Passed,

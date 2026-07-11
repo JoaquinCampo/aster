@@ -313,8 +313,16 @@ pub struct FakePiAdapter;
 #[async_trait]
 impl PiAdapter for FakePiAdapter {
     async fn execute(&self, prompt: &str, route: &Route) -> anyhow::Result<ExecutionResult> {
+        let output = if prompt.starts_with("deterministic checker")
+            || prompt.starts_with("independent checker")
+        {
+            serde_json::json!({"status":"Passed","rationale":"deterministic fake checker pass"})
+                .to_string()
+        } else {
+            format!("Fake Pi execution completed as {}: {}", route.role, prompt)
+        };
         Ok(ExecutionResult {
-            output: format!("Fake Pi execution completed as {}: {}", route.role, prompt),
+            output,
             usage_tokens: prompt.split_whitespace().count() as u64 + 12,
         })
     }

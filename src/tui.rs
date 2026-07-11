@@ -1,4 +1,5 @@
 use crate::{
+    config::ConfigDocument,
     context,
     domain::{AuditEvent, Task, TaskState},
     memory::MemoryStore,
@@ -99,6 +100,7 @@ pub struct Model {
     pub observability: Observability,
     pub override_open: bool,
     pub override_choice: usize,
+    pub config_path: Option<std::path::PathBuf>,
 }
 
 impl Model {
@@ -114,6 +116,7 @@ impl Model {
             observability: Observability::default(),
             override_open: false,
             override_choice: 0,
+            config_path: None,
         }
     }
 }
@@ -136,6 +139,7 @@ pub enum Cmd {
     Cancel(uuid::Uuid),
     Retry(uuid::Uuid),
     Override(uuid::Uuid),
+    EditConfig(String, String),
     Quit,
 }
 
@@ -246,6 +250,18 @@ fn update_key(model: &mut Model, code: KeyCode) -> Cmd {
             }
             Cmd::None
         }
+        KeyCode::Char('1') if model.input.is_empty() && model.screen == Screen::Config => {
+            Cmd::EditConfig("context.total_tokens".into(), "64000".into())
+        }
+        KeyCode::Char('2') if model.input.is_empty() && model.screen == Screen::Config => {
+            Cmd::EditConfig("routing.enabled".into(), "true".into())
+        }
+        KeyCode::Char('3') if model.input.is_empty() && model.screen == Screen::Config => {
+            Cmd::EditConfig("verification.enabled".into(), "true".into())
+        }
+        KeyCode::Char('4') if model.input.is_empty() && model.screen == Screen::Config => {
+            Cmd::EditConfig("lifecycle.enabled".into(), "true".into())
+        }
         KeyCode::Char(c) => {
             model.input.push(c);
             Cmd::None
@@ -299,6 +315,7 @@ impl Drop for TerminalGuard {
 pub async fn run(path: &Path) -> Result<()> {
     let mut runtime = Runtime::new(Store::open(path)?, FakePiAdapter);
     let mut model = Model::new(runtime.store.tasks()?);
+    model.config_path = Some(path.with_extension("toml"));
     refresh_observability(&mut model, &runtime.store, path);
     let _guard = TerminalGuard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
@@ -436,6 +453,21 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
                 Err(e) => model.status = format!("route override rejected: {e}"),
             }
         }
+        Cmd::EditConfig(field, value) => {
+            let result = model
+                .config_path
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("configuration path unavailable"))
+                .and_then(|path| {
+                    let mut document = ConfigDocument::load(path)?;
+                    document.edit_required(&field, &value)?;
+                    document.save_atomic()
+                });
+            model.status = match result {
+                Ok(()) => format!("config saved: {field}"),
+                Err(e) => format!("config edit failed: {e}"),
+            };
+        }
         Cmd::None => {}
     }
     model.observability.audit = model
@@ -536,7 +568,7 @@ fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
         Screen::Approvals => selected.map(|t| format!("Permissions/approvals [status]\ncapabilities: {}\nisolation: {}",t.route.dimensions.capabilities.join(", "),t.route.dimensions.isolation.join(", "))).unwrap_or("No task selected".into()),
         Screen::Context => format!("Context manifest [list]\n{}", lines(&m.observability.context,"No discovered context assets")),
         Screen::Artifacts => selected.map(|t|format!("Verification and artifacts [evidence]\nverdict: {}\noutput artifact: {}\nfailure: {}",t.verification.as_deref().unwrap_or("not run"),if t.output.is_some(){"persisted transcript"}else{"none"},t.failure_reason.as_deref().unwrap_or("none"))).unwrap_or("No task selected".into()),
-        Screen::Config => "Config [status]\nRuntime configuration is file-backed; editing remains outside this acceptance slice.".into(),
+        Screen::Config => "Config editor [atomic/conflict-aware]\n1 context.total_tokens = 64000\n2 routing.enabled = true\n3 verification.enabled = true\n4 lifecycle.enabled = true\nEdits reload the file, validate, and atomically replace it; concurrent changes are rejected.".into(),
         Screen::Memory => format!("Memory index [list]\n{}", lines(&m.observability.memory,"No active memories")),
         Screen::Providers => format!("Provider status [status]\n{}", lines(&m.observability.diagnostics,"No diagnostics")),
         Screen::Plugins => format!("Plugin/MCP diagnostics [list]\n{}\n{}",lines(&m.observability.plugins,"No plugins discovered"),lines(&m.observability.diagnostics,"No diagnostics")),
@@ -637,6 +669,32 @@ mod tests {
             update_key(&mut m, KeyCode::Enter),
             Cmd::Override(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn config_screen_renders_and_applies_atomic_edit_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("aster.toml");
+        std::fs::write(&config, "version=1\n[context]\ntotal_tokens=100\n").unwrap();
+        let mut m = Model::new(vec![]);
+        m.screen = Screen::Config;
+        m.config_path = Some(config.clone());
+        assert!(render(100, 24, &m).contains("atomic/conflict-aware"));
+        let command = update_key(&mut m, KeyCode::Char('3'));
+        assert_eq!(
+            command,
+            Cmd::EditConfig("verification.enabled".into(), "true".into())
+        );
+        let mut runtime = Runtime::new(Store::open(":memory:").unwrap(), FakePiAdapter);
+        execute_cmd(&mut m, &mut runtime, command).await;
+        assert!(m.status.contains("config saved"));
+        assert!(
+            ConfigDocument::load(config)
+                .unwrap()
+                .config
+                .verification
+                .enabled
+        );
     }
 
     fn sample() -> Task {
