@@ -1,0 +1,33 @@
+schema_version = 1
+revision = 1
+reviewed = true
+
+[defaults]
+effort = "medium"
+output_tokens = 4000
+tools = ["read", "search"]
+capabilities = ["workspace:read"]
+isolation = ["process:none", "network:denied", "credentials:none"]
+lifecycle = "run-to-completion-with-checkpoint"
+verification = "deterministic-output-check"
+
+[[models]]
+id = "fake-luna"
+quality = 60
+cost_per_million = 100
+latency_ms = 100
+context_tokens = 8000
+
+[[models]]
+id = "fake-terra"
+quality = 85
+cost_per_million = 500
+latency_ms = 300
+context_tokens = 32000
+
+[[models]]
+id = "fixed-strong"
+quality = 95
+cost_per_million = 2000
+latency_ms = 700
+context_tokens = 128000

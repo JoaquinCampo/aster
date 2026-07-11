@@ -2,7 +2,7 @@ use crate::domain::{Effort, ExecutionDimensions, Role, Route};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ModelProfile {
     pub id: String,
     pub quality: u8,
@@ -224,37 +224,33 @@ pub fn built_in_roles() -> Vec<RoleContract> {
 
 pub struct Router {
     pub models: Vec<ModelProfile>,
+    pub policy_revision: u64,
+    pub defaults: crate::routing_policy::RouteDefaults,
 }
 impl Default for Router {
     fn default() -> Self {
-        Self {
-            models: vec![
-                ModelProfile {
-                    id: "fake-luna".into(),
-                    quality: 60,
-                    cost_per_million: 100,
-                    latency_ms: 100,
-                    context_tokens: 8_000,
-                },
-                ModelProfile {
-                    id: "fake-terra".into(),
-                    quality: 85,
-                    cost_per_million: 500,
-                    latency_ms: 300,
-                    context_tokens: 32_000,
-                },
-                ModelProfile {
-                    id: "fixed-strong".into(),
-                    quality: 95,
-                    cost_per_million: 2_000,
-                    latency_ms: 700,
-                    context_tokens: 128_000,
-                },
-            ],
-        }
+        let policy: crate::routing_policy::RoutingPolicy =
+            toml::from_str(include_str!("../config/routing-policy-v1.toml"))
+                .expect("embedded routing policy must be valid TOML");
+        policy
+            .validate()
+            .expect("embedded routing policy must be reviewed and valid");
+        Self::from_policy(policy)
     }
 }
 impl Router {
+    pub fn from_policy(policy: crate::routing_policy::RoutingPolicy) -> Self {
+        Self {
+            models: policy.models,
+            policy_revision: policy.revision,
+            defaults: policy.defaults,
+        }
+    }
+    pub fn from_policy_path(path: impl AsRef<std::path::Path>) -> anyhow::Result<Self> {
+        Ok(Self::from_policy(
+            crate::routing_policy::RoutingPolicy::load(path)?,
+        ))
+    }
     pub fn route(&self, prompt: &str) -> Route {
         self.decide(RoutingRequest {
             prompt: prompt.into(),
@@ -397,8 +393,8 @@ impl Router {
             });
         }
         let decision_id = format!(
-            "v1:{role}:{}:{required}:{}",
-            selected.id, request.estimated_tokens
+            "v{}:{role}:{}:{required}:{}",
+            self.policy_revision, selected.id, request.estimated_tokens
         );
         Ok(RoutingDecision {
             route: Route {
@@ -407,18 +403,16 @@ impl Router {
                 dimensions: ExecutionDimensions {
                     effort,
                     context_tokens: requested_context,
-                    output_tokens: 4_000,
+                    output_tokens: self.defaults.output_tokens,
                     max_latency_ms: request
                         .overrides
                         .max_latency_ms
                         .unwrap_or(selected.latency_ms),
-                    capabilities: vec!["workspace:read".into()],
-                    isolation: vec![
-                        "process:none".into(),
-                        "network:denied".into(),
-                        "credentials:none".into(),
-                    ],
-                    verification: "deterministic-output-check".into(),
+                    capabilities: self.defaults.capabilities.clone(),
+                    tools: self.defaults.tools.clone(),
+                    isolation: self.defaults.isolation.clone(),
+                    lifecycle: self.defaults.lifecycle.clone(),
+                    verification: self.defaults.verification.clone(),
                 },
                 rationale: format!(
                     "deterministic policy; cheapest eligible profile meeting hard quality {required}; no persisted outcome history used"

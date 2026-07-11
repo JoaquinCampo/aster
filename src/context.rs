@@ -152,6 +152,94 @@ fn walk_skills(
     }
     Ok(())
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievalCandidate {
+    pub item: ContextItem,
+    pub relevance: f32,
+    pub content_version: String,
+    pub fresh: bool,
+    pub critical: bool,
+}
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContextMetrics {
+    pub input_tokens: u32,
+    pub selected_tokens: u32,
+    pub duplicate_tokens_avoided: u32,
+    pub compressed_tokens_avoided: u32,
+    pub omitted_relevant_items: u32,
+    pub omission_rework_count: u32,
+    pub stale_items_invalidated: u32,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievalResult {
+    pub manifest: ContextManifest,
+    pub metrics: ContextMetrics,
+}
+
+pub fn retrieve_relevant(
+    total_budget: u32,
+    category_budgets: &BTreeMap<String, u32>,
+    mut candidates: Vec<RetrievalCandidate>,
+) -> Result<RetrievalResult> {
+    use std::collections::{BTreeSet, HashMap};
+    let input_tokens = candidates.iter().map(|c| c.item.estimated_tokens).sum();
+    let stale_items_invalidated = candidates.iter().filter(|c| !c.fresh).count() as u32;
+    candidates.retain(|c| c.fresh);
+    candidates.sort_by(|a, b| {
+        b.critical
+            .cmp(&a.critical)
+            .then_with(|| b.relevance.total_cmp(&a.relevance))
+            .then_with(|| a.item.provenance.path.cmp(&b.item.provenance.path))
+    });
+    let mut used_category: HashMap<String, u32> = HashMap::new();
+    let mut fingerprints = BTreeSet::new();
+    let mut selected = Vec::new();
+    let mut used = 0;
+    let mut metrics = ContextMetrics {
+        input_tokens,
+        stale_items_invalidated,
+        ..Default::default()
+    };
+    for c in candidates {
+        let fingerprint = format!("{}:{}", c.content_version, c.item.content.trim());
+        if !fingerprints.insert(fingerprint) {
+            metrics.duplicate_tokens_avoided += c.item.estimated_tokens;
+            continue;
+        }
+        let cap = category_budgets
+            .get(&c.item.category)
+            .copied()
+            .unwrap_or(total_budget);
+        let cat_used = used_category.get(&c.item.category).copied().unwrap_or(0);
+        if used + c.item.estimated_tokens > total_budget || cat_used + c.item.estimated_tokens > cap
+        {
+            if c.critical {
+                bail!(
+                    "critical constraint cannot fit context/category budget: {}",
+                    c.item.provenance.path.display()
+                )
+            }
+            if c.relevance > 0.0 {
+                metrics.omitted_relevant_items += 1;
+            }
+            continue;
+        }
+        used += c.item.estimated_tokens;
+        *used_category.entry(c.item.category.clone()).or_default() += c.item.estimated_tokens;
+        selected.push(c.item);
+    }
+    metrics.selected_tokens = used;
+    Ok(RetrievalResult {
+        manifest: ContextManifest::build(total_budget, selected)?,
+        metrics,
+    })
+}
+
+pub fn record_omission_rework(metrics: &mut ContextMetrics) {
+    metrics.omission_rework_count += 1;
+}
+
 pub fn manifest_from_assets(assets: &[DiscoveredAsset], budget: u32) -> Result<ContextManifest> {
     let mut items = vec![];
     for a in assets.iter().filter(|a| a.supported) {

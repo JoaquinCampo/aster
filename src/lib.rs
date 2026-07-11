@@ -10,6 +10,7 @@ pub mod pi_gateway;
 pub mod plugin;
 pub mod provider;
 pub mod routing;
+pub mod routing_policy;
 pub mod runtime;
 pub mod store;
 pub mod tui;

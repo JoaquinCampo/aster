@@ -79,7 +79,9 @@ pub struct ExecutionDimensions {
     pub output_tokens: u32,
     pub max_latency_ms: u64,
     pub capabilities: Vec<String>,
+    pub tools: Vec<String>,
     pub isolation: Vec<String>,
+    pub lifecycle: String,
     pub verification: String,
 }
 

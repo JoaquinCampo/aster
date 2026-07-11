@@ -19,6 +19,8 @@ impl Store {
           CREATE TABLE IF NOT EXISTS audit(seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, task_id TEXT NOT NULL, body TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS operations(id TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, body TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS effect_authorizations(id TEXT PRIMARY KEY, operation_id TEXT NOT NULL, task_id TEXT NOT NULL, body TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS routing_outcomes(policy_revision INTEGER NOT NULL, role TEXT NOT NULL, model TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(policy_revision,role,model));
+          CREATE TABLE IF NOT EXISTS routing_recommendations(id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL);
           INSERT OR IGNORE INTO schema_migrations VALUES(1, datetime('now'));
           INSERT OR IGNORE INTO schema_migrations VALUES(2, datetime('now'));" )?;
         Ok(Self { conn })
@@ -132,6 +134,53 @@ impl Store {
         )?;
         let bodies = statement
             .query_map([operation_id.to_string()], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        bodies
+            .into_iter()
+            .map(|body| Ok(serde_json::from_str(&body)?))
+            .collect()
+    }
+    pub fn save_routing_outcome(
+        &self,
+        outcome: &crate::routing_policy::OutcomeAggregate,
+    ) -> Result<()> {
+        self.conn.execute("INSERT INTO routing_outcomes(policy_revision,role,model,body) VALUES(?1,?2,?3,?4) ON CONFLICT(policy_revision,role,model) DO UPDATE SET body=excluded.body",
+            params![outcome.policy_revision, outcome.role.to_string(), outcome.model, serde_json::to_string(outcome)?])?;
+        Ok(())
+    }
+    pub fn routing_outcomes(
+        &self,
+        revision: u64,
+    ) -> Result<Vec<crate::routing_policy::OutcomeAggregate>> {
+        let mut statement = self.conn.prepare(
+            "SELECT body FROM routing_outcomes WHERE policy_revision=?1 ORDER BY role,model",
+        )?;
+        let bodies = statement
+            .query_map([revision], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        bodies
+            .into_iter()
+            .map(|body| Ok(serde_json::from_str(&body)?))
+            .collect()
+    }
+    pub fn save_routing_recommendation(
+        &self,
+        recommendation: &crate::routing_policy::PolicyRecommendation,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO routing_recommendations(body) VALUES(?1)",
+            [serde_json::to_string(recommendation)?],
+        )?;
+        Ok(())
+    }
+    pub fn routing_recommendations(
+        &self,
+    ) -> Result<Vec<crate::routing_policy::PolicyRecommendation>> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT body FROM routing_recommendations ORDER BY id")?;
+        let bodies = statement
+            .query_map([], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         bodies
             .into_iter()
