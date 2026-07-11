@@ -1,4 +1,13 @@
-use crate::{domain::Task, provider::FakePiAdapter, runtime::Runtime, store::Store};
+use crate::{
+    context,
+    domain::{AuditEvent, Task, TaskState},
+    memory::MemoryStore,
+    plugin,
+    provider::FakePiAdapter,
+    routing::Router,
+    runtime::Runtime,
+    store::Store,
+};
 use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
@@ -69,6 +78,15 @@ impl Screen {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Observability {
+    pub audit: Vec<AuditEvent>,
+    pub context: Vec<String>,
+    pub memory: Vec<String>,
+    pub plugins: Vec<String>,
+    pub diagnostics: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Model {
     pub screen: Screen,
@@ -78,6 +96,9 @@ pub struct Model {
     pub status: String,
     pub running: bool,
     pub tick: u64,
+    pub observability: Observability,
+    pub override_open: bool,
+    pub override_choice: usize,
 }
 
 impl Model {
@@ -90,6 +111,9 @@ impl Model {
             status: "ready".into(),
             running: true,
             tick: 0,
+            observability: Observability::default(),
+            override_open: false,
+            override_choice: 0,
         }
     }
 }
@@ -146,6 +170,28 @@ pub fn update(model: &mut Model, msg: Msg) -> Cmd {
 }
 
 fn update_key(model: &mut Model, code: KeyCode) -> Cmd {
+    if model.override_open {
+        return match code {
+            KeyCode::Up => {
+                model.override_choice = model.override_choice.saturating_sub(1);
+                Cmd::None
+            }
+            KeyCode::Down => {
+                model.override_choice = (model.override_choice + 1).min(2);
+                Cmd::None
+            }
+            KeyCode::Esc => {
+                model.override_open = false;
+                model.status = "route override cancelled".into();
+                Cmd::None
+            }
+            KeyCode::Enter => {
+                model.override_open = false;
+                action(model, "validating route override", Cmd::Override)
+            }
+            _ => Cmd::None,
+        };
+    }
     match code {
         KeyCode::Char('q') if model.input.is_empty() => {
             model.running = false;
@@ -182,20 +228,23 @@ fn update_key(model: &mut Model, code: KeyCode) -> Cmd {
             model.input.pop();
             Cmd::None
         }
-        KeyCode::Char('p') if model.input.is_empty() => {
-            action(model, "pause requested", Cmd::Pause)
-        }
+        KeyCode::Char('p') if model.input.is_empty() => request_action(model, "pause", Cmd::Pause),
         KeyCode::Char('s') if model.input.is_empty() => {
-            action(model, "resume requested", Cmd::Resume)
+            request_action(model, "resume", Cmd::Resume)
         }
         KeyCode::Char('x') if model.input.is_empty() => {
-            action(model, "cancel requested", Cmd::Cancel)
+            request_action(model, "cancel", Cmd::Cancel)
         }
-        KeyCode::Char('r') if model.input.is_empty() => {
-            action(model, "retry requested", Cmd::Retry)
-        }
+        KeyCode::Char('r') if model.input.is_empty() => request_action(model, "retry", Cmd::Retry),
         KeyCode::Char('o') if model.input.is_empty() => {
-            action(model, "route override requested", Cmd::Override)
+            if model.tasks.get(model.selected).is_none() {
+                model.status = "no task selected".into();
+            } else {
+                model.override_open = true;
+                model.override_choice = 0;
+                model.status = "route override editor: choose a validated preset".into();
+            }
+            Cmd::None
         }
         KeyCode::Char(c) => {
             model.input.push(c);
@@ -204,6 +253,25 @@ fn update_key(model: &mut Model, code: KeyCode) -> Cmd {
         _ => Cmd::None,
     }
 }
+fn request_action(model: &mut Model, name: &str, f: impl FnOnce(uuid::Uuid) -> Cmd) -> Cmd {
+    let Some(task) = model.tasks.get(model.selected) else {
+        model.status = "no task selected".into();
+        return Cmd::None;
+    };
+    let legal = match name {
+        "pause" => matches!(task.state, TaskState::Running),
+        "resume" => matches!(task.state, TaskState::Paused),
+        "cancel" => !task.state.is_terminal() && !matches!(task.state, TaskState::Cancelling),
+        "retry" => matches!(task.state, TaskState::Failed | TaskState::TimedOut),
+        _ => false,
+    };
+    if !legal {
+        model.status = format!("{name} unavailable for {:?}", task.state);
+        return Cmd::None;
+    }
+    action(model, &format!("{name} requested"), f)
+}
+
 fn action(model: &mut Model, status: &str, f: impl FnOnce(uuid::Uuid) -> Cmd) -> Cmd {
     let Some(id) = model.tasks.get(model.selected).map(|t| t.id) else {
         model.status = "no task selected".into();
@@ -231,6 +299,7 @@ impl Drop for TerminalGuard {
 pub async fn run(path: &Path) -> Result<()> {
     let mut runtime = Runtime::new(Store::open(path)?, FakePiAdapter);
     let mut model = Model::new(runtime.store.tasks()?);
+    refresh_observability(&mut model, &runtime.store, path);
     let _guard = TerminalGuard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     let (tx, rx) = mpsc::channel();
@@ -265,6 +334,66 @@ pub async fn run(path: &Path) -> Result<()> {
     Ok(())
 }
 
+fn refresh_observability(model: &mut Model, store: &Store, db_path: &Path) {
+    model.observability.audit = model
+        .tasks
+        .iter()
+        .flat_map(|t| store.audit_for(t.id).unwrap_or_default())
+        .collect();
+    model.observability.audit.sort_by_key(|e| e.at);
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    model.observability.context = context::discover(&cwd, &cwd)
+        .and_then(|a| context::manifest_from_assets(&a, 32_000))
+        .map(|m| {
+            m.items
+                .into_iter()
+                .map(|i| {
+                    format!(
+                        "{} · {} tokens · {:?}",
+                        i.provenance.path.display(),
+                        i.estimated_tokens,
+                        i.provenance.trust
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_else(|e| vec![format!("context query error: {e}")]);
+    model.observability.memory = MemoryStore::open(db_path)
+        .and_then(|s| s.active())
+        .map(|items| {
+            items
+                .into_iter()
+                .map(|m| format!("{:?} · {} = {} · {}", m.scope, m.key, m.value, m.provenance))
+                .collect()
+        })
+        .unwrap_or_else(|e| vec![format!("memory query error: {e}")]);
+    let roots = [cwd.join(".aster/plugins"), cwd.join("plugins")];
+    model.observability.plugins = plugin::discover(&roots)
+        .map(|items| {
+            items
+                .into_iter()
+                .map(|p| {
+                    format!(
+                        "{} {} · {} tools · {} MCP endpoints",
+                        p.id,
+                        p.version,
+                        p.tools.len(),
+                        p.mcp_endpoints.len()
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_else(|e| vec![format!("plugin discovery error: {e}")]);
+    model.observability.diagnostics = vec![
+        "provider: deterministic-fake · ready · local/no network".into(),
+        format!(
+            "plugin registry: {} discovered",
+            model.observability.plugins.len()
+        ),
+        "MCP: JSON-RPC client/server available · no configured live transport".into(),
+    ];
+}
+
 async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cmd: Cmd) {
     match cmd {
         Cmd::Quit => model.running = false,
@@ -295,11 +424,26 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
         Cmd::Resume(id) => apply_runtime(model, runtime.resume(id)),
         Cmd::Cancel(id) => apply_runtime(model, runtime.cancel(id)),
         Cmd::Retry(id) => apply_runtime(model, runtime.retry(id)),
-        Cmd::Override(_) => {
-            model.status = "route override unavailable: no model picker is implemented".into();
+        Cmd::Override(id) => {
+            let prompt = [
+                "simple local edit",
+                "complex architecture investigation",
+                "high risk security review",
+            ][model.override_choice];
+            let route = Router::default().route(prompt);
+            match Router::default().validate_route(&route) {
+                Ok(()) => apply_runtime(model, runtime.override_route(id, route)),
+                Err(e) => model.status = format!("route override rejected: {e}"),
+            }
         }
         Cmd::None => {}
     }
+    model.observability.audit = model
+        .tasks
+        .iter()
+        .flat_map(|t| runtime.store.audit_for(t.id).unwrap_or_default())
+        .collect();
+    model.observability.audit.sort_by_key(|e| e.at);
 }
 fn apply_runtime(model: &mut Model, result: anyhow::Result<Task>) {
     match result {
@@ -342,19 +486,61 @@ pub fn view(f: &mut Frame<'_>, model: &Model) {
     render_screen(f, model, rows[1], compact);
     f.render_widget(Paragraph::new(format!("> {}  │ {}  │ Tab screens · ↑↓ select · p pause · s resume · x cancel · r retry · o override · q quit",model.input,model.status)).block(Block::bordered()),rows[2]);
 }
+fn action_availability(t: &Task) -> String {
+    format!(
+        "Actions: pause={} resume={} cancel={} retry={}",
+        matches!(t.state, TaskState::Running),
+        matches!(t.state, TaskState::Paused),
+        !t.state.is_terminal() && !matches!(t.state, TaskState::Cancelling),
+        matches!(t.state, TaskState::Failed | TaskState::TimedOut)
+    )
+}
+
 fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
     let selected = m.tasks.get(m.selected);
-    let text=match m.screen {
-        Screen::Conversation => "Conversation\nType a task and press Enter. Runtime events arrive through subscriptions.".into(),
-        Screen::Tasks => m.tasks.iter().enumerate().map(|(i,t)|format!("{} {:8} {:?} {}",if i==m.selected{"›"}else{" "},&t.id.to_string()[..8],t.state,t.prompt)).collect::<Vec<_>>().join("\n"),
-        Screen::Dag => m.tasks.iter().map(|t|format!("{} ← {}",&t.id.to_string()[..8],if t.dependencies.is_empty(){"root".into()}else{t.dependencies.iter().map(|x|x.to_string()[..8].to_string()).collect::<Vec<_>>().join(",")})).collect::<Vec<_>>().join("\n"),
-        Screen::Routing => selected.map(|t|format!("role: {}\nmodel: {}\neffort: {}\nrationale: {}",t.route.role,t.route.model,t.route.dimensions.effort,t.route.rationale)).unwrap_or("No task".into()),
-        Screen::Usage => selected.map(|t|format!("tokens: {} / {}",t.tokens_used,t.token_budget.map(|x|x.to_string()).unwrap_or("unlimited".into()))).unwrap_or("No usage".into()),
+    let lines = |v: &[String], empty: &str| {
+        if v.is_empty() {
+            empty.into()
+        } else {
+            v.join("\n")
+        }
+    };
+    let text = if m.override_open {
+        let choices = [
+            "economy/local edit",
+            "quality/architecture",
+            "high-risk/security",
+        ];
+        format!(
+            "Route override editor [dialog]\nSelect validated preset (↑↓, Enter apply, Esc cancel)\n{}",
+            choices
+                .iter()
+                .enumerate()
+                .map(|(i, x)| format!("{} {x}", if i == m.override_choice { "›" } else { " " }))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    } else {
+        match m.screen {
+        Screen::Conversation => "Conversation [input]\nType a task and press Enter. Runtime events remain non-blocking.".into(),
+        Screen::Tasks => m.tasks.iter().enumerate().map(|(i,t)|format!("{} {:8} {:?} {} · {}",if i==m.selected{"›"}else{" "},&t.id.to_string()[..8],t.state,t.prompt,action_availability(t))).collect::<Vec<_>>().join("\n"),
+        Screen::Dag => {
+            let edges = m.tasks.iter().map(|t|format!("{} ← {}",&t.id.to_string()[..8],if t.dependencies.is_empty(){"root".into()}else{t.dependencies.iter().map(|x|x.to_string()[..8].to_string()).collect::<Vec<_>>().join(",")})).collect::<Vec<_>>();
+            let critical = m.tasks.iter().max_by_key(|t| t.dependencies.len()).map(|t| t.id.to_string()[..8].to_string()).unwrap_or_else(|| "none".into());
+            format!("DAG [graph] · critical path endpoint: {critical}\n{}", edges.join("\n"))
+        }
+        Screen::Routing => selected.map(|t|format!("Route trace [detail]\ndecision: {}\nrole: {}\nmodel: {}\neffort: {}\nrationale: {}\nPress o to edit override",t.route.decision_id,t.route.role,t.route.model,t.route.dimensions.effort,t.route.rationale)).unwrap_or("No task selected".into()),
+        Screen::Usage => selected.map(|t|format!("Usage and budgets [meter]\ntokens: {} / {}\nremaining: {}\nattempts: {} / {}\ntimeout: {} ms",t.tokens_used,t.token_budget.map(|x|x.to_string()).unwrap_or("unlimited".into()),t.token_budget.map(|b|b.saturating_sub(t.tokens_used).to_string()).unwrap_or("unlimited".into()),t.attempts,t.retry.max_attempts,t.timeout_ms.map(|x|x.to_string()).unwrap_or("none".into()))).unwrap_or("No usage".into()),
         Screen::Transcripts => selected.and_then(|t|t.output.clone()).unwrap_or("No transcript yet".into()),
-        Screen::Audit => "Audit view unavailable: event querying is not wired to the TUI.".into(), Screen::Approvals => "Approvals view unavailable: no approval query is implemented.".into(),
-        Screen::Context => "Context detail unavailable: no runtime context query is implemented.".into(), Screen::Artifacts => selected.and_then(|t|t.verification.clone()).unwrap_or("No persisted verification evidence for selected task".into()),
-        Screen::Config => "Config view unavailable: configuration querying is not wired to the TUI.".into(), Screen::Memory => "Memory view unavailable: index status is not queried.".into(),
-        Screen::Providers => "Provider health unavailable: no health probe has been run. Runtime uses the deterministic fake adapter.".into(), Screen::Plugins => "Plugin state unavailable: registry querying is not wired to the TUI.".into(),
+        Screen::Audit => format!("Audit events [log]\n{}", m.observability.audit.iter().rev().map(|e|format!("{} · {} · {}",e.at.format("%H:%M:%S"),e.kind,e.detail)).collect::<Vec<_>>().join("\n")),
+        Screen::Approvals => selected.map(|t| format!("Permissions/approvals [status]\ncapabilities: {}\nisolation: {}",t.route.dimensions.capabilities.join(", "),t.route.dimensions.isolation.join(", "))).unwrap_or("No task selected".into()),
+        Screen::Context => format!("Context manifest [list]\n{}", lines(&m.observability.context,"No discovered context assets")),
+        Screen::Artifacts => selected.map(|t|format!("Verification and artifacts [evidence]\nverdict: {}\noutput artifact: {}\nfailure: {}",t.verification.as_deref().unwrap_or("not run"),if t.output.is_some(){"persisted transcript"}else{"none"},t.failure_reason.as_deref().unwrap_or("none"))).unwrap_or("No task selected".into()),
+        Screen::Config => "Config [status]\nRuntime configuration is file-backed; editing remains outside this acceptance slice.".into(),
+        Screen::Memory => format!("Memory index [list]\n{}", lines(&m.observability.memory,"No active memories")),
+        Screen::Providers => format!("Provider status [status]\n{}", lines(&m.observability.diagnostics,"No diagnostics")),
+        Screen::Plugins => format!("Plugin/MCP diagnostics [list]\n{}\n{}",lines(&m.observability.plugins,"No plugins discovered"),lines(&m.observability.diagnostics,"No diagnostics")),
+    }
     };
     let title = if compact {
         format!(" {} · compact ", m.screen.title())
@@ -397,6 +583,7 @@ mod tests {
             Cmd::None
         );
         assert_eq!(m.screen, Screen::Tasks);
+        m.tasks[0].state = TaskState::Running;
         assert!(matches!(
             update(
                 &mut m,
@@ -415,6 +602,43 @@ mod tests {
         assert!(render(60, 16, &m).contains("compact"));
         assert!(render(30, 8, &m).contains("too small"));
     }
+    #[test]
+    fn observability_screens_have_pty_semantic_labels() {
+        let mut m = Model::new(vec![sample()]);
+        m.observability.context = vec!["AGENTS.md · 10 tokens".into()];
+        m.observability.memory = vec!["Task · key = value".into()];
+        m.observability.plugins = vec!["fixture 1.0 · 1 tools".into()];
+        let cases = [
+            (Screen::Dag, "DAG [graph]"),
+            (Screen::Routing, "Route trace [detail]"),
+            (Screen::Usage, "Usage and budgets [meter]"),
+            (Screen::Audit, "Audit events [log]"),
+            (Screen::Context, "Context manifest [list]"),
+            (Screen::Artifacts, "Verification and artifacts [evidence]"),
+            (Screen::Memory, "Memory index [list]"),
+            (Screen::Providers, "Provider status [status]"),
+            (Screen::Plugins, "Plugin/MCP diagnostics [list]"),
+        ];
+        for (screen, label) in cases {
+            m.screen = screen;
+            assert!(render(120, 30, &m).contains(label), "missing {label}");
+        }
+    }
+
+    #[test]
+    fn illegal_actions_and_override_editor_are_visible() {
+        let mut m = Model::new(vec![sample()]);
+        assert_eq!(update_key(&mut m, KeyCode::Char('p')), Cmd::None);
+        assert!(m.status.contains("pause unavailable"));
+        assert_eq!(update_key(&mut m, KeyCode::Char('o')), Cmd::None);
+        assert!(m.override_open);
+        assert!(render(100, 24, &m).contains("Route override editor [dialog]"));
+        assert!(matches!(
+            update_key(&mut m, KeyCode::Enter),
+            Cmd::Override(_)
+        ));
+    }
+
     fn sample() -> Task {
         Task::new(
             "test task".into(),

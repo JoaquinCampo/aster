@@ -28,8 +28,8 @@ Status vocabulary: **Implemented** means enforced behavior with cited evidence; 
 | U03 Preserve all explicit lifecycle terminal/intermediate states | M2 | Partial | domain/runtime state types/tests | Integrated UI exercise incomplete |
 | U04 Audit/deletion coexist without deleted payload or reconstructable derivatives | M5 | Partial | memory tests and design docs | Broader audit payload review required |
 | M01 Memory inspect/correct/delete/deduplicate/contradiction/provenance/scope; stores not conflated | M5 | Partial | `memory.rs`; memory integration tests | Export/search/TUI and all required scopes incomplete |
-| O01 UI answers running/reason/route/context/permissions/effects/usage/escalation/block/control questions | M6 | Partial | current TUI and task data | Most detail/control views incomplete |
-| O02 Task pane, usage/budget, routing trace, audit, transcripts/artifacts, DAG/critical path | M6 | Partial | task pane/runtime data | Complete workspace absent |
+| O01 UI answers running/reason/route/context/permissions/effects/usage/escalation/block/control questions | M6 | Partial | query-backed `tui.rs` panes and semantic render tests | Effects/escalation detail and live-provider data remain incomplete |
+| O02 Task pane, usage/budget, routing trace, audit, transcripts/artifacts, DAG/critical path | M6 | Partial | query-backed TUI panes; render/update tests | Critical-path calculation is local structural depth, not duration-weighted scheduling |
 | G01 Files and complete TUI are consistent round-trippable config surfaces | M5/M6 | Partial | config parser/tests | Complete editor/round trip absent |
 | T01 No product telemetry; local logs/accounting only; provider destinations/context disclosed | M4/M6 | Partial | no telemetry dependency/path found; security/config docs | Negative architectural fact is not exhaustive runtime proof; destination UI incomplete |
 | P02 Codex Luna/Terra/Sol, xAI/Grok, generic OpenAI-compatible providers | M2 | Partial | provider contract fixtures/tests; live Codex Sol smoke evidence | Codex Sol live generation validated; Luna/Terra and xAI/generic live operation remain |
@@ -38,7 +38,7 @@ Status vocabulary: **Implemented** means enforced behavior with cited evidence; 
 | A01 Extensible roles including nine named built-ins and declared contracts/defaults/tools/verification/fallback/isolation/completion | M3 | Implemented | `Role::Custom`, nine declarative `RoleContract` entries, routing tests | Runtime policy does not yet load custom role contracts from config |
 | Q01 Durable runtime: fg/bg, DAG/deps, bounded concurrency, retry/backoff, cancel/pause/resume, timeout/budget, checkpoint/recovery/idempotency, handoff/artifacts, M/C/F, loop detection, escalation, terminal reasons | M2–M4 | Partial | durable runtime/store tests | Several lifecycle, DAG and policy capabilities absent |
 | Q02 Bounded policy-controlled delegation depth/fan-out | M3 | Implemented | `DelegationPolicy` rejects depth/fan-out overflow; `v01_local_gaps` | Limits are enforced by the integrated workflow entry point; future delegation entry points must use the same policy |
-| UI01 Custom responsive keyboard TUI with all listed workspace/control surfaces and graceful degradation | M6 | Partial | `tui.rs`; component tests | `tui-use` release workflow evidence absent; many panes absent |
+| UI01 Custom responsive keyboard TUI with all listed workspace/control surfaces and graceful degradation | M6 | Partial | `tui.rs`; wide/compact/degraded and semantic-label tests | `tui-use` release workflow evidence and full config editing remain absent |
 | C03 Hierarchical discovery/retrieval/manifests/provenance/budgets/freshness/summaries/handoffs/critical constraints/trust/metrics | M3 | Partial | context engine tests/docs | Full retrieval and measurements incomplete |
 | C04 `.claude`/`.agents` hierarchy with `.claude` conflict precedence, inventory and executable nested/conflict/partial fixtures | M3 | Partial | compatibility fixture and config/context tests | Full ecosystem inventory/unknown-feature matrix incomplete |
 | M02 Required seven memory scopes and inspect/search/add/amend/merge/dedupe/contradict/expire/delete/export/provenance | M5 | Implemented | `memory.rs`; `config_context_memory`, `v01_local_gaps` | Local API is complete; query/edit TUI remains tracked by UI requirements |
@@ -62,7 +62,7 @@ Status vocabulary: **Implemented** means enforced behavior with cited evidence; 
 | AC03 Three provider families supported | M8 | Partial | contract tests and live Codex Sol smoke evidence | Codex is partially live-validated; xAI and generic OpenAI remain fixture-only |
 | AC04 Hybrid auditable explainable overridable routing | M8 | Partial | rationale/event tests | Hybrid/history/override incomplete |
 | AC05 Durable DAG retries/persistence/recovery/pause/resume/cancel/budgets | M8 | Partial | runtime/store tests | Full DAG/lifecycle incomplete |
-| AC06 Task/usage/route/audit/context/artifact inspection | M8 | Partial | current TUI/runtime | Complete surfaces absent |
+| AC06 Task/usage/route/audit/context/artifact inspection | M8 | Partial | query-backed TUI screens and semantic render tests | Provider/plugin health is local discovery status; artifacts are task evidence rather than a general artifact index |
 | AC07 Enforced risk permissions/least privilege | M8 | Partial | broker security tests | All integrations and OS isolation not complete |
 | AC08 Preferences/knowledge/task/audit persist with provenance | M8 | Partial | config/context/memory/store tests | Complete integrated stores/UI incomplete |
 | AC09 File/TUI config round trip | M8 | Not started | — | Typed file config alone is insufficient |
