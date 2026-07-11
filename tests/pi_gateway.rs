@@ -7,10 +7,7 @@ use serde_json::json;
 use std::{collections::BTreeSet, path::PathBuf};
 
 fn installed_modules() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("repository parent")
-        .join("autopoiesis/node_modules")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("node_modules")
 }
 
 fn gateway() -> PiGateway {

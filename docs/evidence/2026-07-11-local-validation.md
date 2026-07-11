@@ -1,6 +1,8 @@
 # Local validation evidence — 2026-07-11
 
-Commit under validation: `19188bb` and ancestors (record the final release SHA separately after remaining changes).
+Commit under validation: `d134277` plus the final-gate candidate changes (record the resulting commit SHA after commit).
+
+The final-gate audit found that `d134277` depended on an untracked sibling checkout for Pi packages: hosted run [`29166356700`](https://github.com/JoaquinCampo/aster/actions/runs/29166356700) failed both Linux and native `Darwin-arm64` jobs at `pi_gateway` package discovery. The candidate now pins Pi 0.73.0 in `package-lock.json`, installs it with lifecycle scripts disabled in CI/clean-checkout validation, and resolves it from this repository. This was a local packaging defect, not an external platform blocker.
 
 ## Rust quality gates
 
@@ -13,7 +15,7 @@ cargo test --locked --all-targets --all-features
 git diff --check
 ```
 
-All checks passed. The suite covered configuration/context/memory, durable runtime and recovery, effect security, plugins, provider contracts, routing, verification workflows, the first vertical slice, and the concrete Pi gateway.
+All checks passed on the final-gate candidate, including `cargo audit --deny warnings`, tracked-file secret scanning, and the clean-checkout validator. The clean checkout performs `npm ci --ignore-scripts`, then locked Rust build/test and binary smoke validation. The suite covered configuration/context/memory, durable runtime and recovery, effect security, plugins, provider contracts, routing, verification workflows, the first vertical slice, and the concrete Pi gateway.
 
 ## Real TUI PTY
 

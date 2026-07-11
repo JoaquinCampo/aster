@@ -1,0 +1,10 @@
+{
+  "name": "aster-pi-sidecar",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pinned Pi runtime dependencies for Aster's sidecar boundary",
+  "dependencies": {
+    "@mariozechner/pi-agent-core": "0.73.0",
+    "@mariozechner/pi-ai": "0.73.0"
+  }
+}

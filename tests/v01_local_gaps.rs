@@ -143,10 +143,7 @@ async fn v01_integrated_acceptance_covers_all_thirteen_steps() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("acceptance.db");
     let objective = "implement a durable repository change with independent verification, isolated execution, deterministic checks, lifecycle controls, and restart recovery";
-    let pi_modules = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("repository parent")
-        .join("autopoiesis/node_modules");
+    let pi_modules = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("node_modules");
     assert!(
         pi_modules
             .join("@mariozechner/pi-agent-core/package.json")

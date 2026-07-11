@@ -12,6 +12,7 @@ git -C "$root" archive --format=tar "$tree" | tar -xf - -C "$tmp"
 cd "$tmp"
 
 test ! -e .aster
+npm ci --ignore-scripts
 cargo build --locked
 cargo test --locked --all-targets --all-features
 ./target/debug/aster --help >/dev/null

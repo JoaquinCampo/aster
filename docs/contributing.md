@@ -2,9 +2,10 @@
 
 ## Setup
 
-Use stable Rust. Work from a clean branch and never commit `.aster/`, provider transcripts, credentials, or generated keys.
+Use stable Rust and Node.js 22. Work from a clean branch and never commit `.aster/`, provider transcripts, credentials, or generated keys.
 
 ```sh
+npm ci --ignore-scripts
 cargo build --locked
 cargo test --locked --all-targets --all-features
 ```
