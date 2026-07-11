@@ -6,7 +6,7 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     net::TcpListener,
     path::Path,
-    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+    process::{Child, ChildStdin, ChildStdout},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -395,38 +395,22 @@ impl StdioTransport {
             env: env.clone(),
             cwd: cwd.to_owned(),
         };
-        let (_, transport) = broker.launch_process_owned(
-            grant,
-            Some(approval),
-            request,
-            |program, args, env, cwd| {
-                let mut child = Command::new(program)
-                    .args(args)
-                    .env_clear()
-                    .envs(env)
-                    .current_dir(cwd)
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::null())
-                    .spawn()?;
-                let input = child
-                    .stdin
-                    .take()
-                    .ok_or_else(|| anyhow::anyhow!("MCP stdin unavailable"))?;
-                let output = BufReader::new(
-                    child
-                        .stdout
-                        .take()
-                        .ok_or_else(|| anyhow::anyhow!("MCP stdout unavailable"))?,
-                );
-                Ok(Self {
-                    child,
-                    input,
-                    output,
-                })
-            },
-        )?;
-        Ok(transport)
+        let (_, mut child) = broker.spawn_authorized_interactive(grant, Some(approval), request)?;
+        let input = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("MCP stdin unavailable"))?;
+        let output = BufReader::new(
+            child
+                .stdout
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("MCP stdout unavailable"))?,
+        );
+        Ok(Self {
+            child,
+            input,
+            output,
+        })
     }
 }
 impl Transport for StdioTransport {

@@ -1,4 +1,4 @@
-use crate::effects::Capability;
+use crate::effects::{Approval, Capability, EffectAdapter, EffectRequest, ScopedGrant};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -7,7 +7,7 @@ use std::{
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+    process::{Child, ChildStdin, ChildStdout},
     sync::mpsc,
     thread,
     time::Duration,
@@ -189,8 +189,8 @@ pub struct BrokerRequest {
     pub arguments: Value,
 }
 pub trait EffectBroker: Send + Sync {
-    /// Persists spawn intent and returns its durable operation id before the
-    /// plugin process may be created.
+    /// Persists legacy hook spawn intent. Plugin process launches use the core
+    /// effect broker instead.
     fn begin_spawn(&self, plugin: &str, executable: &Path) -> Result<uuid::Uuid>;
     fn finish_spawn(&self, operation_id: uuid::Uuid, succeeded: bool) -> Result<()>;
     fn execute(&self, plugin: &str, request: BrokerRequest) -> Result<Value>;
@@ -231,7 +231,6 @@ pub struct PluginHost<B: EffectBroker> {
     input: Option<ChildStdin>,
     output: Option<BufReader<ChildStdout>>,
     next_id: u64,
-    spawn_operation: Option<uuid::Uuid>,
     health: Health,
 }
 impl<B: EffectBroker> PluginHost<B> {
@@ -244,7 +243,6 @@ impl<B: EffectBroker> PluginHost<B> {
             input: None,
             output: None,
             next_id: 1,
-            spawn_operation: None,
             health: Health::Disabled,
         }
     }
@@ -254,9 +252,14 @@ impl<B: EffectBroker> PluginHost<B> {
     pub fn health(&self) -> &Health {
         &self.health
     }
-    pub fn enable(&mut self) -> Result<()> {
+    pub fn enable<A: EffectAdapter>(
+        &mut self,
+        process_broker: &crate::effects::EffectBroker<'_, A>,
+        grant: &ScopedGrant,
+        approval: &Approval,
+    ) -> Result<()> {
         self.enabled = true;
-        self.start()
+        self.start(process_broker, grant, approval)
     }
     pub fn disable(&mut self) -> Result<()> {
         if self.child.is_some() {
@@ -267,29 +270,25 @@ impl<B: EffectBroker> PluginHost<B> {
         self.health = Health::Disabled;
         Ok(())
     }
-    pub fn start(&mut self) -> Result<()> {
+    pub fn start<A: EffectAdapter>(
+        &mut self,
+        process_broker: &crate::effects::EffectBroker<'_, A>,
+        grant: &ScopedGrant,
+        approval: &Approval,
+    ) -> Result<()> {
         if !self.enabled {
             bail!("plugin is disabled")
         }
         self.kill();
-        let operation_id = self
-            .broker
-            .begin_spawn(&self.manifest.id, &self.manifest.executable)?;
-        self.spawn_operation = Some(operation_id);
-        let child_result = Command::new(&self.manifest.executable)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .env_clear()
-            .spawn();
-        let mut child = match child_result {
-            Ok(child) => child,
-            Err(error) => {
-                self.spawn_operation = None;
-                self.broker.finish_spawn(operation_id, false)?;
-                return Err(error).context("spawn plugin");
-            }
+        let request = EffectRequest::Exec {
+            program: self.manifest.executable.clone(),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            cwd: self.manifest.install_root.clone(),
         };
+        let (_, mut child) = process_broker
+            .spawn_authorized_interactive(grant, Some(approval), request)
+            .context("spawn plugin")?;
         self.input = child.stdin.take();
         self.output = child.stdout.take().map(BufReader::new);
         self.child = Some(child);
@@ -371,13 +370,6 @@ impl<B: EffectBroker> PluginHost<B> {
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
             let _ = child.wait();
-        }
-        if let Some(operation_id) = self.spawn_operation.take() {
-            let succeeded = !matches!(
-                self.health,
-                Health::Crashed(_) | Health::TimedOut | Health::Unhealthy(_)
-            );
-            let _ = self.broker.finish_spawn(operation_id, succeeded);
         }
         self.input = None;
         self.output = None;

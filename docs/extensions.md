@@ -4,7 +4,7 @@ Extensions include plugins, hooks, skills, project rules, and MCP integrations. 
 
 ## Plugin contract
 
-An installable plugin has a manifest declaring identity/version, compatible host contract, entry point, and requested capabilities. Discovery and enablement do not grant capabilities. The host validates the manifest, computes an explicit grant, persists authorization, and launches the plugin out of process through brokered process policy. Failures are diagnostics and must not corrupt core state. See `plugins.md` and `fixtures/plugins/echo` for implemented fixture behavior.
+An installable plugin has a manifest declaring identity/version, compatible host contract, entry point, and requested capabilities. Discovery and enablement do not grant capabilities. The host validates the manifest, computes an explicit scoped `ProcessExec` grant and exact approval bound to the executable, empty argument/environment vectors, and plugin install-root working directory, persists authorization through the core effect broker, and only then launches the plugin out of process. Argument or environment mutation, missing capability, and expired or mismatched approval fail before process creation. Failures are diagnostics and must not corrupt core state. See `plugins.md` and `fixtures/plugins/echo` for implemented fixture behavior.
 
 ## Design rules
 

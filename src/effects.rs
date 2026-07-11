@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
+    process::{Child, Command, Stdio},
 };
 use uuid::Uuid;
 
@@ -414,14 +415,13 @@ impl<'a, A: EffectAdapter> EffectBroker<'a, A> {
 
     /// Authorizes and records a process launch performed by a transport that
     /// must retain the child for interactive I/O. The exact exec request is
-    /// bound to the approval before `launch` can run.
-    pub fn launch_process_owned<T>(
+    /// bound to the approval before process creation.
+    pub fn spawn_authorized_interactive(
         &self,
         grant: &ScopedGrant,
         approval: Option<&Approval>,
         request: EffectRequest,
-        launch: impl FnOnce(&Path, &[String], &BTreeMap<String, String>, &Path) -> Result<T>,
-    ) -> Result<(Uuid, T)> {
+    ) -> Result<(Uuid, Child)> {
         use crate::domain::{Operation, OperationState};
         let mut operation = Operation {
             id: Uuid::new_v4(),
@@ -455,7 +455,15 @@ impl<'a, A: EffectAdapter> EffectBroker<'a, A> {
                     args,
                     env,
                     cwd,
-                } => launch(program, args, env, cwd),
+                } => Ok(Command::new(program)
+                    .args(args)
+                    .env_clear()
+                    .envs(env)
+                    .current_dir(cwd)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .spawn()?),
                 _ => bail!("process launch requires an exec request"),
             }
         })();

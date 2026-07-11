@@ -1,10 +1,13 @@
 use anyhow::Result;
 use aster::{
-    effects::Capability,
-    plugin::{BrokerRequest, EffectBroker, Health, PluginHost, Registry, discover},
+    effects::*,
+    plugin::{BrokerRequest, EffectBroker, Health, PluginHost, PluginManifest, Registry, discover},
+    store::Store,
 };
+use chrono::{Duration, Utc};
 use serde_json::{Value, json};
 use std::{
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -27,6 +30,51 @@ fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/plugins")
 }
 
+fn process_authorization(
+    manifest: &PluginManifest,
+    task_id: uuid::Uuid,
+) -> (ScopedGrant, Approval) {
+    let request = EffectRequest::Exec {
+        program: manifest.executable.clone(),
+        args: Vec::new(),
+        env: BTreeMap::new(),
+        cwd: manifest.executable.parent().unwrap().to_owned(),
+    };
+    let grant = ScopedGrant {
+        id: uuid::Uuid::new_v4(),
+        task_id,
+        capabilities: BTreeSet::from([Capability::ProcessExec]),
+        workspace: request_cwd(&request),
+        worktrees: vec![],
+        executable_allowlist: BTreeSet::from([manifest.executable.clone()]),
+        network_allowlist: BTreeSet::new(),
+        external_allowlist: BTreeSet::new(),
+        secret_destinations: BTreeMap::new(),
+        isolation: IsolationProfile {
+            filesystem: FilesystemIsolation::WorkspaceReadWrite,
+            process: ProcessIsolation::ScrubbedEnvironment,
+            network: NetworkIsolation::Denied,
+            secrets: SecretIsolation::Denied,
+        },
+        expires_at: None,
+    };
+    let approval = Approval::for_request(
+        grant.task_id,
+        grant.id,
+        &request,
+        Utc::now() + Duration::minutes(1),
+    )
+    .unwrap();
+    (grant, approval)
+}
+
+fn request_cwd(request: &EffectRequest) -> PathBuf {
+    match request {
+        EffectRequest::Exec { cwd, .. } => cwd.clone(),
+        _ => unreachable!(),
+    }
+}
+
 #[test]
 fn discovers_validates_and_registers_contracts_and_instructions() -> Result<()> {
     let plugins = discover(&[root()])?;
@@ -44,7 +92,14 @@ fn lifecycle_calls_and_effects_are_brokered() -> Result<()> {
     let broker = Broker::default();
     let log = broker.0.clone();
     let mut host = PluginHost::new(manifest, broker);
-    host.enable()?;
+    let store_dir = tempfile::tempdir()?;
+    let store = Store::open(store_dir.path().join("db"))?;
+    let process_broker = aster::effects::EffectBroker {
+        store: &store,
+        adapter: SystemAdapter,
+    };
+    let (grant, approval) = process_authorization(host.manifest(), uuid::Uuid::new_v4());
+    host.enable(&process_broker, &grant, &approval)?;
     assert_eq!(host.health(), &Health::Healthy);
     assert_eq!(host.call("tool.echo", json!({"x": 1}))?, json!({"x": 1}));
     assert_eq!(
@@ -61,9 +116,85 @@ fn lifecycle_calls_and_effects_are_brokered() -> Result<()> {
 fn crash_is_contained_and_diagnosed() -> Result<()> {
     let manifest = discover(&[root()])?.remove(0);
     let mut host = PluginHost::new(manifest, Broker::default());
-    host.enable()?;
+    let store_dir = tempfile::tempdir()?;
+    let store = Store::open(store_dir.path().join("db"))?;
+    let process_broker = aster::effects::EffectBroker {
+        store: &store,
+        adapter: SystemAdapter,
+    };
+    let (grant, approval) = process_authorization(host.manifest(), uuid::Uuid::new_v4());
+    host.enable(&process_broker, &grant, &approval)?;
     assert!(host.call("crash", json!({})).is_err());
     assert!(matches!(host.health(), Health::Crashed(_)));
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn plugin_launch_denial_and_exact_argument_environment_binding() -> Result<()> {
+    let manifest = discover(&[root()])?.remove(0);
+    let store_dir = tempfile::tempdir()?;
+    let store = Store::open(store_dir.path().join("db"))?;
+    let process_broker = aster::effects::EffectBroker {
+        store: &store,
+        adapter: SystemAdapter,
+    };
+    let (mut grant, approval) = process_authorization(&manifest, uuid::Uuid::new_v4());
+    grant.capabilities.remove(&Capability::ProcessExec);
+    let mut host = PluginHost::new(manifest.clone(), Broker::default());
+    assert!(host.enable(&process_broker, &grant, &approval).is_err());
+
+    let (grant, _) = process_authorization(&manifest, uuid::Uuid::new_v4());
+    let mutated = EffectRequest::Exec {
+        program: manifest.executable.clone(),
+        args: vec!["--mutated".into()],
+        env: BTreeMap::from([("UNSAFE".into(), "1".into())]),
+        cwd: manifest.executable.parent().unwrap().to_owned(),
+    };
+    let wrong_approval = Approval::for_request(
+        grant.task_id,
+        grant.id,
+        &mutated,
+        Utc::now() + Duration::minutes(1),
+    )?;
+    let mut host = PluginHost::new(manifest, Broker::default());
+    assert!(
+        host.enable(&process_broker, &grant, &wrong_approval)
+            .is_err()
+    );
+    assert_eq!(store.operations_for(grant.task_id)?.len(), 1);
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn plugin_timeout_is_contained_and_diagnosed() -> Result<()> {
+    let source = root().join("echo");
+    let installs = tempfile::tempdir()?;
+    let plugin = installs.path().join("slow");
+    copy_dir(&source, &plugin)?;
+    let script = plugin.join("echo.py");
+    let text = std::fs::read_to_string(&script)?.replace(
+        "elif method == \"crash\":",
+        "elif method == \"hang\":\n        import time; time.sleep(2)\n        response = {\"id\": request[\"id\"], \"result\": {}}\n    elif method == \"crash\":",
+    );
+    std::fs::write(&script, text)?;
+    let manifest_path = plugin.join("plugin.toml");
+    let text = std::fs::read_to_string(&manifest_path)?
+        .replace("id = \"fixture.echo\"", "id = \"fixture.slow\"")
+        .replace("timeout_ms = 5000", "timeout_ms = 1000");
+    std::fs::write(&manifest_path, text)?;
+    let manifest = PluginManifest::load(&manifest_path)?;
+    let store = Store::open(installs.path().join("db"))?;
+    let process_broker = aster::effects::EffectBroker {
+        store: &store,
+        adapter: SystemAdapter,
+    };
+    let (grant, approval) = process_authorization(&manifest, uuid::Uuid::new_v4());
+    let mut host = PluginHost::new(manifest, Broker::default());
+    host.enable(&process_broker, &grant, &approval)?;
+    assert!(host.call("hang", json!({})).is_err());
+    assert_eq!(host.health(), &Health::TimedOut);
     Ok(())
 }
 
