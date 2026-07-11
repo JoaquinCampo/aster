@@ -3,6 +3,7 @@ use aster::{
     mcp::{Client, Loopback, MCP_PROTOCOL_VERSION, Server},
     memory::{MemoryScope, MemoryStore},
     orchestration::{DelegationPolicy, direct_result},
+    pi_gateway::PiGateway,
     provider::{ExecutionResult, FakePiAdapter, PiAdapter},
     runtime::Runtime,
     store::Store,
@@ -11,6 +12,7 @@ use aster::{
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use serde_json::json;
+use std::path::PathBuf;
 
 #[test]
 fn memory_search_merge_expire_and_export() {
@@ -141,7 +143,21 @@ async fn v01_integrated_acceptance_covers_all_thirteen_steps() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("acceptance.db");
     let objective = "implement a durable repository change with independent verification, isolated execution, deterministic checks, lifecycle controls, and restart recovery";
-    let mut runtime = Runtime::new(Store::open(&path).unwrap(), FakePiAdapter);
+    let pi_modules = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("repository parent")
+        .join("autopoiesis/node_modules");
+    assert!(
+        pi_modules
+            .join("@mariozechner/pi-agent-core/package.json")
+            .exists(),
+        "installed Pi package is required for integrated acceptance"
+    );
+    let adapter = || {
+        PiGateway::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/pi-sidecar.mjs"))
+            .with_node_modules(&pi_modules)
+    };
+    let mut runtime = Runtime::new(Store::open(&path).unwrap(), adapter());
 
     // Submission, visible routing, override, and every safe-boundary lifecycle control.
     let queued = runtime.submit(objective.into()).unwrap();
@@ -160,7 +176,7 @@ async fn v01_integrated_acceptance_covers_all_thirteen_steps() {
 
     // Durable state is observed through a fresh runtime after the first instance is dropped.
     drop(runtime);
-    let runtime = Runtime::new(Store::open(&path).unwrap(), FakePiAdapter);
+    let runtime = Runtime::new(Store::open(&path).unwrap(), adapter());
     assert_eq!(
         runtime.store.task(queued.id).unwrap().unwrap().state,
         completed_probe.state

@@ -17,14 +17,13 @@ All checks passed. The suite covered configuration/context/memory, durable runti
 
 ## Real TUI PTY
 
-Built the release binary and operated it with `tui-use`:
+Built the release binary and ran `scripts/tui-acceptance.sh` through `tui-use`. The reproducible run preserved semantic text and JSON snapshots under `docs/evidence/tui-pty/`:
 
-- `120×30`: launched, submitted `implement durable routing test`, observed the durable queued task.
-- Quit and restarted against the same SQLite database.
-- `60×16`: opened the Tasks screen and observed the same task after restart.
-- `30×8` degraded rendering is covered by a deterministic Ratatui backend test.
+- `120×30`: submitted a deterministic successful task, applied a validated route preset, observed an illegal pause rejection for a succeeded task, and traversed query panes.
+- Restarted against the same SQLite database at `60×16` and observed the persisted succeeded task plus compact query panes.
+- Restarted at degraded `30×8` dimensions and retained semantic task status.
 
-The initial PTY run exposed a real startup defect caused by `terminal.clear()` querying cursor position. The defect was removed in commit `271cf90`; the release binary then launched and operated successfully. Broader failure/cancellation/permission/recovery PTY workflows remain required.
+The script uses semantic waits rather than timing sleeps and retains terminal dimensions, cursor/status metadata, and screen content in JSON alongside human-readable snapshots. Timeout, permission-denial, cancellation-in-flight, and injected recovery-failure PTY cases remain required.
 
 ## Local Codex bridge
 
@@ -43,5 +42,7 @@ No credential values were read, printed, stored, or sent anywhere except through
 
 - Inspected upstream `badlogic/pi-mono` commit `8479bd84743e8889f728acb21a62794102db0529`.
 - Confirmed MIT license and local installed package versions 0.73.0.
-- Exercised the actual installed package import/version-discovery boundary through the Aster sidecar integration test.
-- Deterministic Pi fixture execution validates normalized event and tool-preflight behavior without paid provider traffic.
+- Exercised installed-package discovery/import and deterministic execution through the actual sidecar boundary.
+- `PiGateway` implements the runtime `PiAdapter`; the integrated 13-step acceptance workflow consumes normalized output and usage through that adapter.
+- Deterministic mode imports Pi 0.73.0 but never constructs a provider agent, inherits no provider credentials, and makes no paid call.
+- Capability preflight denial remains covered at the same normalized event boundary.

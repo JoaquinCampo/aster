@@ -1,0 +1,18 @@
+─── rapid-jackal ───────────────────────────────────────────
+┌ ASTER ───────────────────────────────────────────────────┐
+│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│
+└──────────────────────────────────────────────────────────┘
+┌ Conversation · compact ──────────────────────────────────┐
+│Conversation [input]                                      │
+│Type a task and press Enter. Runtime events remain        │
+│non-blocking.                                             │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│
+└──────────────────────────────────────────────────────────┘
+─── running | cursor(60,15) | fullscreen:true | title:"" ───

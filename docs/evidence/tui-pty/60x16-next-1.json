@@ -1,0 +1,16 @@
+{
+  "session_id": "rapid-jackal",
+  "screen": "┌ ASTER ───────────────────────────────────────────────────┐\n│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│\n└──────────────────────────────────────────────────────────┘\n┌ Tasks · compact ─────────────────────────────────────────┐\n│› d681607a Succeeded implement deterministic acceptance   │\n│evidence · Actions: pause=false resume=false cancel=false │\n│retry=false                                               │\n│                                                          │\n│                                                          │\n│                                                          │\n│                                                          │\n│                                                          │\n└──────────────────────────────────────────────────────────┘\n┌──────────────────────────────────────────────────────────┐\n│>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│\n└──────────────────────────────────────────────────────────┘",
+  "cursor": {
+    "x": 14,
+    "y": 6
+  },
+  "changed": false,
+  "status": "running",
+  "exit_code": null,
+  "title": "",
+  "is_fullscreen": true,
+  "cols": 60,
+  "rows": 16,
+  "highlights": []
+}

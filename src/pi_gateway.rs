@@ -1,4 +1,12 @@
-use crate::provider::{EventStream, ProviderError, ProviderEvent, ReasoningEffort, Usage};
+use crate::{
+    domain::{Effort, Route},
+    provider::{
+        EventStream, ExecutionResult, PiAdapter, ProviderError, ProviderEvent, ReasoningEffort,
+        Usage,
+    },
+};
+use async_trait::async_trait;
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeSet, path::PathBuf, process::Stdio};
@@ -173,14 +181,14 @@ impl PiGateway {
         })
     }
 
-    pub async fn run_fixture(
+    pub async fn run_deterministic(
         &self,
         input: PiRunInput,
         allowed_capabilities: &BTreeSet<String>,
     ) -> Result<EventStream, ProviderError> {
         let events = self
             .request(
-                serde_json::json!({"v":1,"id":"run-1","type":"run","mode":"fixture","input":input}),
+                serde_json::json!({"v":1,"id":"run-1","type":"run","mode":"deterministic","input":input}),
             )
             .await?;
         let mut normalized = Vec::new();
@@ -215,5 +223,46 @@ impl PiGateway {
             }
         }
         Ok(Box::pin(tokio_stream::iter(normalized)))
+    }
+}
+
+#[async_trait]
+impl PiAdapter for PiGateway {
+    async fn execute(&self, prompt: &str, route: &Route) -> anyhow::Result<ExecutionResult> {
+        let effort = match route.dimensions.effort {
+            Effort::Low => ReasoningEffort::Low,
+            Effort::Medium => ReasoningEffort::Medium,
+            Effort::High => ReasoningEffort::High,
+        };
+        let input = PiRunInput {
+            prompt: prompt.to_owned(),
+            model: route.model.clone(),
+            effort,
+            context: Some(format!(
+                "role={} decision={}",
+                route.role, route.decision_id
+            )),
+            fixture_tool: None,
+        };
+        let allowed = route.dimensions.capabilities.iter().cloned().collect();
+        let mut stream = self.run_deterministic(input, &allowed).await?;
+        let mut output = String::new();
+        let mut usage_tokens = 0;
+        while let Some(event) = stream.next().await {
+            match event? {
+                ProviderEvent::OutputDelta(delta) => output.push_str(&delta),
+                ProviderEvent::Completed(usage) => {
+                    usage_tokens = usage.total_tokens.unwrap_or_else(|| {
+                        usage.input_tokens.unwrap_or_default()
+                            + usage.output_tokens.unwrap_or_default()
+                    });
+                }
+                ProviderEvent::ReasoningDelta(_) | ProviderEvent::ToolCallDelta { .. } => {}
+            }
+        }
+        Ok(ExecutionResult {
+            output,
+            usage_tokens,
+        })
     }
 }

@@ -1,0 +1,16 @@
+{
+  "session_id": "rapid-jackal",
+  "screen": "┌ ASTER ───────────────────────────────────────────────────┐\n│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│\n└──────────────────────────────────────────────────────────┘\n┌ DAG · compact ───────────────────────────────────────────┐\n│DAG [graph] · critical path endpoint: d681607a            │\n│d681607a ← root                                           │\n│                                                          │\n│                                                          │\n│                                                          │\n│                                                          │\n│                                                          │\n│                                                          │\n└──────────────────────────────────────────────────────────┘\n┌──────────────────────────────────────────────────────────┐\n│>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│\n└──────────────────────────────────────────────────────────┘",
+  "cursor": {
+    "x": 12,
+    "y": 6
+  },
+  "changed": false,
+  "status": "running",
+  "exit_code": null,
+  "title": "",
+  "is_fullscreen": true,
+  "cols": 60,
+  "rows": 16,
+  "highlights": []
+}

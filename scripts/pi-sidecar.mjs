@@ -32,9 +32,14 @@ async function loadPi() {
 
 const active = new Map();
 async function run(req) {
-  if (req.mode === "fixture") {
+  if (req.mode === "deterministic") {
+    await loadPi();
+    const checker = req.input.prompt.startsWith("deterministic checker") || req.input.prompt.startsWith("independent checker");
+    const text = checker
+      ? JSON.stringify({ status: "Passed", rationale: "deterministic Pi checker pass" })
+      : `pi-deterministic:${req.input.prompt}`;
     write({ v: 1, id: req.id, type: "agent_start" });
-    write({ v: 1, id: req.id, type: "message_delta", role: "assistant", text: `fixture:${req.input.prompt}` });
+    write({ v: 1, id: req.id, type: "message_delta", role: "assistant", text });
     if (req.input.fixtureTool) write({ v: 1, id: req.id, type: "tool_preflight", callId: "fixture-tool-1", name: req.input.fixtureTool.name, arguments: req.input.fixtureTool.arguments ?? {}, capability: req.input.fixtureTool.capability });
     write({ v: 1, id: req.id, type: "usage", inputTokens: 3, outputTokens: 5, totalTokens: 8 });
     write({ v: 1, id: req.id, type: "agent_end", stopReason: "stop" });

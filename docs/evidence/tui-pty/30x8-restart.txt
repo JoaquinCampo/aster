@@ -1,0 +1,10 @@
+─── noble-panda ──────────────
+┌────────────────────────────┐
+│ASTER · Conversation        │
+│ready                       │
+│Terminal too small (need 40×│
+│q quit                      │
+│                            │
+│                            │
+└────────────────────────────┘
+─── running | cursor(30,7) | fullscreen:true | title:"" 

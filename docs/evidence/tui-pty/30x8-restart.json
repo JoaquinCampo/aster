@@ -1,0 +1,16 @@
+{
+  "session_id": "noble-panda",
+  "screen": "┌────────────────────────────┐\n│ASTER · Conversation        │\n│ready                       │\n│Terminal too small (need 40×│\n│q quit                      │\n│                            │\n│                            │\n└────────────────────────────┘",
+  "cursor": {
+    "x": 30,
+    "y": 7
+  },
+  "changed": false,
+  "status": "running",
+  "exit_code": null,
+  "title": "",
+  "is_fullscreen": true,
+  "cols": 30,
+  "rows": 8,
+  "highlights": []
+}

@@ -1,0 +1,18 @@
+─── rapid-jackal ───────────────────────────────────────────
+┌ ASTER ───────────────────────────────────────────────────┐
+│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│
+└──────────────────────────────────────────────────────────┘
+┌ Tasks · compact ─────────────────────────────────────────┐
+│› d681607a Succeeded implement deterministic acceptance   │
+│evidence · Actions: pause=false resume=false cancel=false │
+│retry=false                                               │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│
+└──────────────────────────────────────────────────────────┘
+─── running | cursor(14,6) | fullscreen:true | title:"" ────

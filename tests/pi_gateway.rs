@@ -6,8 +6,16 @@ use futures_util::StreamExt;
 use serde_json::json;
 use std::{collections::BTreeSet, path::PathBuf};
 
+fn installed_modules() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("repository parent")
+        .join("autopoiesis/node_modules")
+}
+
 fn gateway() -> PiGateway {
     PiGateway::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/pi-sidecar.mjs"))
+        .with_node_modules(installed_modules())
 }
 fn input(tool: Option<FixtureTool>) -> PiRunInput {
     PiRunInput {
@@ -20,21 +28,21 @@ fn input(tool: Option<FixtureTool>) -> PiRunInput {
 }
 
 #[tokio::test]
-async fn fixture_normalizes_messages_tools_and_usage() {
+async fn deterministic_mode_imports_pi_and_normalizes_messages_tools_and_usage() {
     let tool = FixtureTool {
         name: "read".into(),
         capability: "fs.read".into(),
         arguments: json!({"path":"safe"}),
     };
     let mut stream = gateway()
-        .run_fixture(
+        .run_deterministic(
             input(Some(tool)),
             &["fs.read".to_string()].into_iter().collect(),
         )
         .await
         .unwrap();
     assert!(
-        matches!(stream.next().await.unwrap().unwrap(), ProviderEvent::OutputDelta(x) if x=="fixture:hello")
+        matches!(stream.next().await.unwrap().unwrap(), ProviderEvent::OutputDelta(x) if x=="pi-deterministic:hello")
     );
     assert!(
         matches!(stream.next().await.unwrap().unwrap(), ProviderEvent::ToolCallDelta{name:Some(x),..} if x=="read")
@@ -52,7 +60,7 @@ async fn denied_tool_never_crosses_preflight() {
         arguments: json!({}),
     };
     let result = gateway()
-        .run_fixture(input(Some(tool)), &BTreeSet::new())
+        .run_deterministic(input(Some(tool)), &BTreeSet::new())
         .await;
     let error = match result {
         Ok(_) => panic!("denied tool unexpectedly passed preflight"),
@@ -63,16 +71,13 @@ async fn denied_tool_never_crosses_preflight() {
 
 #[tokio::test]
 async fn installed_pi_runtime_is_discovered_when_available() {
-    let modules = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("autopoiesis/node_modules");
-    if !modules
-        .join("@mariozechner/pi-agent-core/package.json")
-        .exists()
-    {
-        return;
-    }
+    let modules = installed_modules();
+    assert!(
+        modules
+            .join("@mariozechner/pi-agent-core/package.json")
+            .exists(),
+        "installed Pi package is required for concrete gateway acceptance"
+    );
     let discovered = gateway()
         .with_node_modules(modules)
         .discover()
