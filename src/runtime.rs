@@ -116,18 +116,29 @@ impl<A: PiAdapter> Runtime<A> {
             }
             .await;
             match execution {
-                Ok(Some(result)) if task.token_budget.is_some_and(|b| result.usage_tokens > b) => {
-                    task.tokens_used = result.usage_tokens;
+                Ok(Some(result))
+                    if task.token_budget.is_some_and(|b| {
+                        task.tokens_used.saturating_add(result.usage_tokens) > b
+                    }) =>
+                {
+                    task.tokens_used = task.tokens_used.saturating_add(result.usage_tokens);
                     task.state = TaskState::Failed;
                     task.failure_reason = Some("token budget exceeded".into());
                     op.state = OperationState::Failed;
                 }
                 Ok(Some(result)) => {
                     task.tokens_used += result.usage_tokens;
-                    task.output = Some(result.output);
-                    task.verification = Some("PASS: output is non-empty".into());
-                    task.state = TaskState::Succeeded;
-                    op.state = OperationState::Succeeded;
+                    task.output = Some(result.output.clone());
+                    if result.output.trim().is_empty() {
+                        task.verification = Some("FAIL: output is empty".into());
+                        task.failure_reason = Some("empty output failed verification".into());
+                        task.state = TaskState::Failed;
+                        op.state = OperationState::Failed;
+                    } else {
+                        task.verification = Some("PASS: output is non-empty".into());
+                        task.state = TaskState::Succeeded;
+                        op.state = OperationState::Succeeded;
+                    }
                 }
                 Ok(None) => {
                     task.failure_reason = Some("execution timeout exceeded".into());
