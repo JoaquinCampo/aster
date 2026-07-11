@@ -238,7 +238,6 @@ pub async fn run(path: &Path) -> Result<()> {
     let mut model = Model::new(runtime.store.tasks()?);
     let _guard = TerminalGuard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    terminal.clear()?;
     let (tx, rx) = mpsc::channel();
     let event_tx = tx.clone();
     thread::spawn(move || {
