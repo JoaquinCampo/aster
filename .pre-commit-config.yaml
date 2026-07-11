@@ -1,0 +1,23 @@
+repos:
+  - repo: local
+    hooks:
+      - id: rustfmt
+        name: cargo fmt
+        entry: cargo fmt --all -- --check
+        language: system
+        pass_filenames: false
+      - id: clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets --all-features -- -D warnings
+        language: system
+        pass_filenames: false
+      - id: test
+        name: cargo test
+        entry: cargo test --all-targets --all-features
+        language: system
+        pass_filenames: false
+      - id: secret-scan
+        name: repository secret scan
+        entry: ./scripts/scan-secrets.sh
+        language: system
+        pass_filenames: false

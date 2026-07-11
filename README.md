@@ -30,6 +30,18 @@ Routing uses stable typed roles (`orchestrator`, `implementer`, `reviewer`, `res
 
 The versioned deterministic comparison with the fixed strong-model baseline is in [`docs/routing-benchmark-v1.md`](docs/routing-benchmark-v1.md). Profile numbers are fixtures and must not be interpreted as live provider measurements.
 
+## Documentation
+
+- [Preflight and genuine blockers](docs/preflight.md)
+- [Architecture](docs/architecture.md)
+- [Operations and release gates](docs/operations.md)
+- [Configuration](docs/configuration.md)
+- [Security model](docs/security.md)
+- [Recovery](docs/recovery.md)
+- [Extension development](docs/extensions.md)
+- [Contributing](docs/contributing.md)
+- [BRIEF requirements matrix](docs/acceptance-matrix.md)
+
 ## Status
 
-This is an initial vertical slice, **not a completed v0.1**. Live Pi and Codex bridge integration, lifecycle controls, enforced isolation, full configuration, extensibility, compatibility fixtures, and release evidence remain open and are tracked in `docs/acceptance-matrix.md`.
+This is an initial vertical slice, **not a completed v0.1**. Live Pi and Codex bridge integration, lifecycle controls, OS-enforced isolation, full configuration, extensibility, compatibility fixtures, benchmarks, hosted CI, TUI PTY validation, and macOS arm64 release evidence remain open and are tracked in `docs/acceptance-matrix.md`.

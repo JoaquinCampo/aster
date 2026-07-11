@@ -1,0 +1,50 @@
+name: quality
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: format, clippy, test, security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --all-targets --all-features
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit --deny warnings
+      - run: ./scripts/scan-secrets.sh
+      - run: ./scripts/validate-clean-checkout.sh
+
+  macos-arm64-release:
+    name: macOS arm64 release gate
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert native Apple Silicon runner
+        run: test "$(uname -s)-$(uname -m)" = Darwin-arm64
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --all-targets --all-features
+      - run: cargo build --release --locked
+      - name: Exercise release binary
+        run: ./target/release/aster --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aster-macos-arm64-${{ github.sha }}
+          path: target/release/aster
+          if-no-files-found: error

@@ -1,10 +1,83 @@
-# Acceptance matrix
+# BRIEF requirements acceptance matrix
 
-| Requirement | Milestone | Status | Evidence | Limitation |
+Status vocabulary: **Implemented** means enforced behavior with cited evidence; **Partial** means a real slice exists but the whole requirement does not; **Fixture-only** never implies live interoperability; **Not started** has no qualifying implementation; **Blocked** requires unavailable external/environmental evidence. `BRIEF.md` line/section references are the requirement source. “Local pass” must be dated in release evidence; repository paths alone are not proof of a hosted or live result.
+
+| ID / normative requirement | Milestone | Status | Evidence / acceptance procedure | Limitations / remaining work |
 |---|---|---|---|---|
-| Rust TUI submits a task | M1 | Implemented | `src/tui.rs`; manual PTY validation pending | Minimal task-list UI |
-| Explicit route and rationale | M1 | Implemented | `routing.rs`, integration test | Static policy only |
-| Pi execution adapter | M1 | Partial | `PiAdapter` + deterministic fake | Live Pi adapter pending inspection |
-| Durable task and event history | M1 | Implemented | restart integration test | Single-node only |
-| Inspectable output and verification | M1 | Partial | persisted task fields | Detail pane pending |
-| Full v0.1 integrated workflow | M2–M8 | Not started | — | See `BRIEF.md` |
+| F01 Rust control plane and custom TUI using Pi runtime | M1/M2 | Partial | `src/{runtime,tui,provider}.rs`; `vertical_slice` | Adapter boundary exists; live Pi unavailable |
+| F02 Dynamic independent role/model/effort/context/tools/permissions/isolation/lifecycle/verification | M2–M5 | Partial | `domain.rs`, `routing.rs`, config/effect tests | Current router and UI do not cover all dimensions/overrides |
+| F03 Durable multi-agent orchestration, observability, context, memory, verification, extensibility | M2–M7 | Partial | runtime/config/context/memory/plugin modules and tests | Baseline slices, not integrated v0.1 |
+| F04 Role must not equal model | M2 | Implemented | route domain separation; routing tests | Built-in role catalog incomplete |
+| F05 Permissive license selected only after Pi obligations review | M8 | Blocked | Cargo declares MIT | Pi source/license review and ADR/notices unavailable; declaration is not completed due diligence |
+| F06 Primary platform macOS Apple Silicon, Rust implementation | M8 | Partial | Rust crate; local arm64 facts in `preflight.md` | Hosted release gate has not run |
+| F07 Disciplined Pi fork and upstream-sync path | M2 | Not started | — | Pi source not discovered |
+| D01 Delegate only for recorded benefit; trivial work direct | M3 | Not started | — | Direct-vs-delegate policy and acceptance case absent |
+| R01 Cheapest reliable initial route and evidence-based escalation with compact handoff | M3 | Partial | `routing.rs`; routing/runtime tests | Static policy; no historical hybrid escalation/de-escalation loop |
+| R02 Router selects all nine execution dimensions per execution | M3 | Partial | route structures/tests | Tools, full isolation, lifecycle, and policies incomplete |
+| R03 Route visible, overridable, and route/escalation reason/signals/budget/outcome audited | M3/M6 | Partial | task events and rationale; vertical slice | Complete UI override and trace absent |
+| P01 Discover Codex bridge before adapter; document and integration-test full live contract and alias semantics | M2 | Blocked | `provider-contract.md`, `provider_contract` fixture test, `preflight.md` | Bridge not found/exercised; no live claims |
+| R04 Hybrid declarative/features/history routing; no silent policy mutation; reviewed recommendations | M3 | Not started | — | Current routing is static |
+| C01 Minimum sufficient provenance-aware context with trust/stale distinctions | M3 | Partial | `context.rs`; `config_context_memory` | Measurement and complete categories/invalidation incomplete |
+| C02 Inspectable manifests, compact loss-aware handoffs, size/duplication/relevance/rework metrics | M3/M6 | Partial | context manifest types/tests | Full UI, handoff, and metrics incomplete |
+| V01 Risk-proportional deterministic-first verification and maker/checker/fixer | M4 | Partial | persisted verification evidence; tests | Independent policy loop/high-risk gates incomplete |
+| S01 Risk-based least privilege, effect classification, audited grants/approvals | M4 | Partial | `effects.rs`; `effect_security` | Approval UX and every transport not complete |
+| S02 Untrusted inputs mediated by enforced broker or isolation; document TCB/bypass/platform failure | M4 | Partial | broker tests; `security.md` | Broker-level macOS controls; bypass/TOCTOU/kernel isolation limitations |
+| S03 Report workspace/process/filesystem/network/credential/external-service isolation independently | M4 | Partial | isolation profile/effect tests; `security.md` | Not surfaced for every execution in TUI |
+| U01 Persist preferences, project knowledge, task/checkpoint/attempt/artifact/dependency state, append-only audit | M2/M5 | Partial | store/memory/runtime tests | Complete DAG/dependency/artifact persistence incomplete |
+| U02 Explicit pause/cancel/retry/recovery semantics and durable effect identity/intent/start/outcome/reconciliation | M2/M4 | Partial | store/effect recovery tests; `recovery.md` | Full lifecycle and live adapter reconciliation incomplete |
+| U03 Preserve all explicit lifecycle terminal/intermediate states | M2 | Partial | domain/runtime state types/tests | Integrated UI exercise incomplete |
+| U04 Audit/deletion coexist without deleted payload or reconstructable derivatives | M5 | Partial | memory tests and design docs | Broader audit payload review required |
+| M01 Memory inspect/correct/delete/deduplicate/contradiction/provenance/scope; stores not conflated | M5 | Partial | `memory.rs`; memory integration tests | Export/search/TUI and all required scopes incomplete |
+| O01 UI answers running/reason/route/context/permissions/effects/usage/escalation/block/control questions | M6 | Partial | current TUI and task data | Most detail/control views incomplete |
+| O02 Task pane, usage/budget, routing trace, audit, transcripts/artifacts, DAG/critical path | M6 | Partial | task pane/runtime data | Complete workspace absent |
+| G01 Files and complete TUI are consistent round-trippable config surfaces | M5/M6 | Partial | config parser/tests | Complete editor/round trip absent |
+| T01 No product telemetry; local logs/accounting only; provider destinations/context disclosed | M4/M6 | Partial | no telemetry dependency/path found; security/config docs | Negative architectural fact is not exhaustive runtime proof; destination UI incomplete |
+| P02 Codex Luna/Terra/Sol, xAI/Grok, generic OpenAI-compatible providers | M2 | Fixture-only | provider contract fixtures/tests | Codex/xAI live operation unavailable; do not claim support |
+| P03 Bridge and env-reference authentication; no plaintext secrets/logs | M2/M4 | Partial | typed secret refs/broker tests; secret scanner | Live bridge auth and OS store not validated |
+| P04 Effort independently selectable; capabilities normalized and explicit | M2/M3 | Partial | provider/route types and tests | Live capability negotiation incomplete |
+| A01 Extensible roles including nine named built-ins and declared contracts/defaults/tools/verification/fallback/isolation/completion | M3 | Not started | — | Role catalog/schema incomplete |
+| Q01 Durable runtime: fg/bg, DAG/deps, bounded concurrency, retry/backoff, cancel/pause/resume, timeout/budget, checkpoint/recovery/idempotency, handoff/artifacts, M/C/F, loop detection, escalation, terminal reasons | M2–M4 | Partial | durable runtime/store tests | Several lifecycle, DAG and policy capabilities absent |
+| Q02 Bounded policy-controlled delegation depth/fan-out | M3 | Not started | — | No complete delegation scheduler |
+| UI01 Custom responsive keyboard TUI with all listed workspace/control surfaces and graceful degradation | M6 | Partial | `tui.rs`; component tests | `tui-use` release workflow evidence absent; many panes absent |
+| C03 Hierarchical discovery/retrieval/manifests/provenance/budgets/freshness/summaries/handoffs/critical constraints/trust/metrics | M3 | Partial | context engine tests/docs | Full retrieval and measurements incomplete |
+| C04 `.claude`/`.agents` hierarchy with `.claude` conflict precedence, inventory and executable nested/conflict/partial fixtures | M3 | Partial | compatibility fixture and config/context tests | Full ecosystem inventory/unknown-feature matrix incomplete |
+| M02 Required seven memory scopes and inspect/search/add/amend/merge/dedupe/contradict/expire/delete/export/provenance | M5 | Partial | memory types/tests | Several operations/scopes and TUI incomplete |
+| M03 Simple preference capture deterministic, no model call | M5 | Implemented | memory/config implementation tests | TUI editing still incomplete |
+| E01 MCP client/server, SKILL.md, hierarchical rules, hooks, installable plugins | M5 | Partial | plugin host/fixture and compatibility code | MCP and lifecycle hooks not complete |
+| E02 Extensions declare enforced capabilities; failure isolation; version/discovery/toggle/diagnostics | M5 | Partial | plugin manifest/host tests; `extensions.md` | Install/upgrade UX and complete diagnostics incomplete |
+| G02 Declarative/versionable/schema-validated/layered/precedence/migratable config; safe semantic TUI/file round trip with unknown fields/atomic/conflict detection | M5/M6 | Partial | config tests; `configuration.md` | TUI and full unknown-field/conflict behavior incomplete |
+| G03 Config covers providers/models/roles/routing/budgets/permissions/tools/MCP/skills/rules/hooks/plugins/paths/TUI/verification/concurrency/lifecycle | M5 | Partial | current config schema/tests | Coverage incomplete |
+| B01 Versioned benchmarks across quality, cost/quota, latency, UX/control, context efficiency | M7 | Not started | — | No recorded benchmark suite/results |
+| B02 Fixed representative scenarios/baseline/settings/thresholds/method; routine tests spend no paid quota | M7 | Partial | deterministic test providers avoid paid quota | Benchmark definitions/results absent |
+| X01 Matrix maps every normative must and v0.1 criterion to milestone/status/procedure/evidence/limitations and stays synchronized | Every | Implemented | this versioned matrix; review against `BRIEF.md` | Must be maintained; grouped compound clauses retain all listed subrequirements |
+| QL01 Unit/integration/TUI E2E/fake-provider/failure-injection/security test pyramid | M1–M8 | Partial | tests directory | TUI PTY breadth and full failure injection incomplete |
+| QL02 Format/lint/static/pre-commit/GitHub Actions gates | M8 | Implemented | `.pre-commit-config.yaml`, `quality.yml` | Hosted execution not yet evidenced |
+| QL03 Real macOS Apple Silicon release gate, preserved logs/evidence | M8 | Blocked | workflow `macos-arm64-release` asserts `Darwin-arm64` and uploads binary | No hosted run/log/artifact yet; cannot claim pass |
+| QL04 Architecture/operation/configuration/extension/recovery docs | M8 | Implemented | `docs/{architecture,operations,configuration,extensions,recovery}.md` | Update with implementation evolution |
+| SL01 First slice six-step TUI→adapter→route override→durability→evidence workflow with deterministic integration test | M1 | Partial | `vertical_slice`, runtime tests | Manual PTY and pre-execution override evidence incomplete |
+| IW01 Integrated workflow steps 1–13, including isolated implementer and final artifacts/trace/audit/context/usage | M8 | Not started | — | Individual slices do not qualify as integrated acceptance |
+| IW02 Complementary trivial direct request without subagent | M8 | Not started | — | Acceptance case absent |
+| AC01 Custom Rust TUI primary interface; Pi below custom control plane | M8 | Partial | Rust TUI/control-plane code | Live Pi absent |
+| AC02 Same role varies model/effort; dimensions independent | M8 | Partial | domain/route tests | Complete per-execution UI/config behavior absent |
+| AC03 Three provider families supported | M8 | Fixture-only | contract tests | Live Codex/xAI unavailable |
+| AC04 Hybrid auditable explainable overridable routing | M8 | Partial | rationale/event tests | Hybrid/history/override incomplete |
+| AC05 Durable DAG retries/persistence/recovery/pause/resume/cancel/budgets | M8 | Partial | runtime/store tests | Full DAG/lifecycle incomplete |
+| AC06 Task/usage/route/audit/context/artifact inspection | M8 | Partial | current TUI/runtime | Complete surfaces absent |
+| AC07 Enforced risk permissions/least privilege | M8 | Partial | broker security tests | All integrations and OS isolation not complete |
+| AC08 Preferences/knowledge/task/audit persist with provenance | M8 | Partial | config/context/memory/store tests | Complete integrated stores/UI incomplete |
+| AC09 File/TUI config round trip | M8 | Not started | — | Typed file config alone is insufficient |
+| AC10 `.claude`/`.agents` accepted with precedence | M8 | Partial | fixture tests | Compatibility inventory incomplete |
+| AC11 MCP/skills/rules/hooks/plugins usable | M8 | Partial | rules/skill/plugin slices | MCP/hooks incomplete |
+| AC12 No telemetry transmitted | M8 | Partial | source/dependency review; no telemetry path identified | Needs release audit/integration verification |
+| AC13 Test pyramid and CI gates pass | M8 | Blocked | local checks recorded per commit; workflow exists | Hosted CI/TUI E2E incomplete |
+| AC14 Representative benchmark results against baselines | M8 | Not started | — | Required release evidence absent |
+| AC15 Operational/architecture/contributor/extension/recovery docs | M8 | Implemented | docs listed here plus `contributing.md` | Must remain accurate |
+| PF01 Durable autonomous preflight covers path/Git/gh/repo capability/Rust/platform/Pi/Codex/tools/CI/secrets/persistence | M0 | Partial | `preflight.md` | Pi/Codex unavailable; repository creation capability not exercised; no live secrets probed |
+| BF01 Blockers classified; fakes never misrepresented; unrelated work continues | Every | Implemented | preflight and this matrix labels | Classification must be maintained |
+| TU01 Every release-critical TUI workflow operated through `tui-use`, multiple sizes/failures/restart, snapshots/scripts/evidence | M8 | Blocked | tool availability in preflight | No PTY evidence produced; product paths incomplete |
+| DD01 All DoD tests/provider contracts/compat/benchmarks/clean checkout/secret hygiene/macOS artifact/docs satisfied before v0.1 claim | M8 | Not started | scripts and workflows establish some gates | v0.1 must not be declared complete |
+| AU01 Protect credentials/data, recoverability, ADRs/audit history, report blockers, evidence over claims | Every | Partial | security/recovery/preflight/ADR/matrix | Ongoing process requirement |
+
+## Release interpretation
+
+The current repository is an architectural foundation, **not v0.1 complete**. A release candidate cannot pass while any `AC`, `IW`, `TU`, `QL03`, benchmark, Pi, or live-provider requirement is Partial, Fixture-only, Blocked, or Not started. A source path is implementation evidence; a successful command/run artifact is execution evidence; neither is live-provider or hosted-platform evidence unless explicitly produced there.
