@@ -24,6 +24,12 @@ All filesystem, process, network, secret, and external effects must pass through
 
 The isolation profile is intentionally multidimensional: filesystem, process, network, and secrets are configured independently. On macOS these controls are broker-level policy enforcement, **not an OS sandbox**: they do not provide container/namespace isolation, syscall filtering, protection from adapters that bypass the broker, or complete TOCTOU protection if another process mutates paths between validation and use. Production adapters should additionally use sandboxed workers and descriptor-relative filesystem APIs. Network and external transports are deny-by-default placeholders until explicitly implemented.
 
+## Typed, auditable routing
+
+Routing uses stable typed roles (`orchestrator`, `implementer`, `reviewer`, `researcher`, and `tester`) and keeps effort, context/output budgets, latency, capabilities, isolation, and verification independent. Deterministic policy derives task requirements; the profile selector then chooses the cheapest reliable model. Every decision includes candidate evidence, rejected reasons, a stable decision ID, and rationale. Callers may explicitly override role/model/effort/context and constrain cost or latency. Failed verification raises the required quality, while three verified successes permit de-escalation. Delegation decisions expose expected quality, cost, latency, and context deltas.
+
+The versioned deterministic comparison with the fixed strong-model baseline is in [`docs/routing-benchmark-v1.md`](docs/routing-benchmark-v1.md). Profile numbers are fixtures and must not be interpreted as live provider measurements.
+
 ## Status
 
 This is an initial vertical slice, **not a completed v0.1**. Live Pi and Codex bridge integration, lifecycle controls, enforced isolation, full configuration, extensibility, compatibility fixtures, and release evidence remain open and are tracked in `docs/acceptance-matrix.md`.

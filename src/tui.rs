@@ -354,7 +354,7 @@ fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
         Screen::Conversation => "Conversation\nType a task and press Enter. Runtime events arrive through subscriptions.".into(),
         Screen::Tasks => m.tasks.iter().enumerate().map(|(i,t)|format!("{} {:8} {:?} {}",if i==m.selected{"›"}else{" "},&t.id.to_string()[..8],t.state,t.prompt)).collect::<Vec<_>>().join("\n"),
         Screen::Dag => m.tasks.iter().map(|t|format!("{} ← {}",&t.id.to_string()[..8],if t.dependencies.is_empty(){"root".into()}else{t.dependencies.iter().map(|x|x.to_string()[..8].to_string()).collect::<Vec<_>>().join(",")})).collect::<Vec<_>>().join("\n"),
-        Screen::Routing => selected.map(|t|format!("role: {}\nmodel: {}\neffort: {}\nrationale: {}",t.route.role,t.route.model,t.route.effort,t.route.rationale)).unwrap_or("No task".into()),
+        Screen::Routing => selected.map(|t|format!("role: {}\nmodel: {}\neffort: {}\nrationale: {}",t.route.role,t.route.model,t.route.dimensions.effort,t.route.rationale)).unwrap_or("No task".into()),
         Screen::Usage => selected.map(|t|format!("tokens: {} / {}",t.tokens_used,t.token_budget.map(|x|x.to_string()).unwrap_or("unlimited".into()))).unwrap_or("No usage".into()),
         Screen::Transcripts => selected.and_then(|t|t.output.clone()).unwrap_or("No transcript yet".into()),
         Screen::Audit => "Audit events are persisted by the runtime store.".into(), Screen::Approvals => "No pending approvals · permissions inherited from runtime policy.".into(),
@@ -378,7 +378,6 @@ fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::Route;
     use ratatui::{Terminal, backend::TestBackend};
     fn render(w: u16, h: u16, m: &Model) -> String {
         let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
@@ -425,16 +424,7 @@ mod tests {
     fn sample() -> Task {
         Task::new(
             "test task".into(),
-            Route {
-                role: "builder".into(),
-                model: "fake".into(),
-                effort: "low".into(),
-                context_budget: 100,
-                capabilities: vec![],
-                isolation: vec![],
-                verification: "test".into(),
-                rationale: "deterministic".into(),
-            },
+            crate::routing::Router::default().route("test task"),
         )
     }
 }

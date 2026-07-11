@@ -1,6 +1,79 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use uuid::Uuid;
+
+/// A stable, serializable execution role. Custom roles keep routing extensible.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Role {
+    Orchestrator,
+    Implementer,
+    Reviewer,
+    Researcher,
+    Tester,
+    Custom(String),
+}
+impl Role {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Orchestrator => "orchestrator",
+            Self::Implementer => "implementer",
+            Self::Reviewer => "reviewer",
+            Self::Researcher => "researcher",
+            Self::Tester => "tester",
+            Self::Custom(v) => v,
+        }
+    }
+}
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+impl PartialEq<&str> for Role {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+}
+impl fmt::Display for Effort {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        })
+    }
+}
+impl PartialEq<&str> for Effort {
+    fn eq(&self, other: &&str) -> bool {
+        match self {
+            Self::Low => *other == "low",
+            Self::Medium => *other == "medium",
+            Self::High => *other == "high",
+        }
+    }
+}
+
+/// Independent controls: changing model does not silently alter permissions or budgets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionDimensions {
+    pub effort: Effort,
+    pub context_tokens: u32,
+    pub output_tokens: u32,
+    pub max_latency_ms: u64,
+    pub capabilities: Vec<String>,
+    pub isolation: Vec<String>,
+    pub verification: String,
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TaskState {
@@ -27,14 +100,11 @@ impl TaskState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Route {
-    pub role: String,
+    pub role: Role,
     pub model: String,
-    pub effort: String,
-    pub context_budget: u32,
-    pub capabilities: Vec<String>,
-    pub isolation: Vec<String>,
-    pub verification: String,
+    pub dimensions: ExecutionDimensions,
     pub rationale: String,
+    pub decision_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

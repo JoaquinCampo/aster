@@ -22,7 +22,7 @@ async fn task_route_execution_and_history_survive_restart() {
 
 #[test]
 fn trivial_work_stays_direct_and_cheap() {
-    let route = aster::routing::Router.route("remember this");
+    let route = aster::routing::Router::default().route("remember this");
     assert_eq!(route.role, "orchestrator");
-    assert_eq!(route.effort, "low");
+    assert_eq!(route.dimensions.effort, "low");
 }

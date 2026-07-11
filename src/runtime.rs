@@ -20,7 +20,7 @@ impl<A: PiAdapter> Runtime<A> {
         Self {
             store,
             adapter,
-            router: Router,
+            router: Router::default(),
             concurrency: 4,
         }
     }
