@@ -10,10 +10,10 @@ Recorded 2026-07-11. This is a local discovery record, not evidence of hosted CI
 | Git identity | Name/email configured | No assertion that the identity is correct for publication |
 | GitHub auth | `gh auth status` reports active keychain login with repository scope | Authentication discovered; no repository creation or push was attempted |
 | Repository remote | No remote configured in this checkout | Public repository and branch protection are unverified blockers |
-| Pi | No `pi-mono` source found in the bounded `~/Documents/Personal` search | License, build, tests, fork obligations, and live integration remain blocked |
-| Codex bridge | No bridge path found and no Codex-named environment variable found; values were never inspected | Contract is fixture-only; live startup/auth/models/streaming/tools/usage/errors are not validated |
+| Pi | Installed `@mariozechner/pi-agent-core` and `@mariozechner/pi-ai` packages were found under `~/Documents/Personal/autopoiesis/node_modules`; upstream source/license/build and a concrete Rust process integration remain to be inspected | Package presence establishes a local lead, not a validated Pi runtime contract or distribution due diligence |
+| Codex bridge | Source and a running release binary were found at `~/.grok/codex-bridge-rs`; the source-backed contract is documented in `provider-contract.md` | Static discovery is complete; live authenticated generation and end-to-end tool-loop validation remain outstanding |
 | Other credentials | Only environment variable names were searched; no provider credential is assumed | xAI/OpenAI live checks remain explicit opt-in work |
-| TUI tooling | `tui-use` executable and specified skill file exist | Release-critical PTY evidence has not yet been produced |
+| TUI tooling | `tui-use` executable and specified skill file exist | A real PTY submission/restart flow has been exercised at 120×30 and 60×16; broader release-critical failure, permission, timeout, and recovery evidence remains |
 | Security tools | `cargo-audit` and `gitleaks` absent locally | CI installs `cargo-audit`; repository script provides a deterministic high-confidence tracked-file scan |
 | CI feasibility | GitHub API is reachable; workflow requests `macos-14` and asserts `Darwin-arm64` | A successful hosted run is required evidence; local feasibility is not that evidence |
 | Persistence | Default `.aster/state.db`; directory ignored | Operators must protect file permissions and backups; secrets must not be stored there |
@@ -24,6 +24,6 @@ Run version/platform commands individually, `gh auth status` (never `gh auth tok
 
 ## Blocker classification
 
-* **Core/integration:** Pi source/runtime and the local Codex bridge were not discoverable in the bounded search. Deterministic adapters validate internal boundaries but do not establish live compatibility.
+* **Core/integration:** Installed Pi packages and the local Codex bridge were discovered. Their contracts are being validated without reading credentials; concrete Pi execution and live Codex generation remain integration gaps. Deterministic adapters validate internal boundaries but do not establish live compatibility.
 * **Environmental:** no remote, no preserved Actions run, no local `cargo-audit`, and no hosted Apple Silicon artifact. These do not block documentation or local tests, but block release claims.
 * **Integration:** xAI and generic OpenAI credentials were not assumed. Contract fixtures may be tested without claiming live operation.

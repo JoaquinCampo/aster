@@ -15,7 +15,7 @@ Status vocabulary: **Implemented** means enforced behavior with cited evidence; 
 | R01 Cheapest reliable initial route and evidence-based escalation with compact handoff | M3 | Partial | `routing.rs`; routing/runtime tests | Static policy; no historical hybrid escalation/de-escalation loop |
 | R02 Router selects all nine execution dimensions per execution | M3 | Partial | route structures/tests | Tools, full isolation, lifecycle, and policies incomplete |
 | R03 Route visible, overridable, and route/escalation reason/signals/budget/outcome audited | M3/M6 | Partial | task events and rationale; vertical slice | Complete UI override and trace absent |
-| P01 Discover Codex bridge before adapter; document and integration-test full live contract and alias semantics | M2 | Blocked | `provider-contract.md`, `provider_contract` fixture test, `preflight.md` | Bridge not found/exercised; no live claims |
+| P01 Discover Codex bridge before adapter; document and integration-test full live contract and alias semantics | M2 | Partial | `provider-contract.md`, source inspection of `~/.grok/codex-bridge-rs`, `provider_contract` fixture tests | Source-backed contract and aliases documented; authenticated live generation/tool loop still unexercised |
 | R04 Hybrid declarative/features/history routing; no silent policy mutation; reviewed recommendations | M3 | Not started | — | Current routing is static |
 | C01 Minimum sufficient provenance-aware context with trust/stale distinctions | M3 | Partial | `context.rs`; `config_context_memory` | Measurement and complete categories/invalidation incomplete |
 | C02 Inspectable manifests, compact loss-aware handoffs, size/duplication/relevance/rework metrics | M3/M6 | Partial | context manifest types/tests | Full UI, handoff, and metrics incomplete |
@@ -47,7 +47,7 @@ Status vocabulary: **Implemented** means enforced behavior with cited evidence; 
 | E02 Extensions declare enforced capabilities; failure isolation; version/discovery/toggle/diagnostics | M5 | Partial | plugin manifest/host tests; `extensions.md` | Install/upgrade UX and complete diagnostics incomplete |
 | G02 Declarative/versionable/schema-validated/layered/precedence/migratable config; safe semantic TUI/file round trip with unknown fields/atomic/conflict detection | M5/M6 | Partial | config tests; `configuration.md` | TUI and full unknown-field/conflict behavior incomplete |
 | G03 Config covers providers/models/roles/routing/budgets/permissions/tools/MCP/skills/rules/hooks/plugins/paths/TUI/verification/concurrency/lifecycle | M5 | Partial | current config schema/tests | Coverage incomplete |
-| B01 Versioned benchmarks across quality, cost/quota, latency, UX/control, context efficiency | M7 | Not started | — | No recorded benchmark suite/results |
+| B01 Versioned benchmarks across quality, cost/quota, latency, UX/control, context efficiency | M7 | Partial | `docs/routing-benchmark-v1.md`; `routing_policy` deterministic benchmark | Fixture metrics only; repeated live-provider measurements and acceptance statistics remain |
 | B02 Fixed representative scenarios/baseline/settings/thresholds/method; routine tests spend no paid quota | M7 | Partial | deterministic test providers avoid paid quota | Benchmark definitions/results absent |
 | X01 Matrix maps every normative must and v0.1 criterion to milestone/status/procedure/evidence/limitations and stays synchronized | Every | Implemented | this versioned matrix; review against `BRIEF.md` | Must be maintained; grouped compound clauses retain all listed subrequirements |
 | QL01 Unit/integration/TUI E2E/fake-provider/failure-injection/security test pyramid | M1–M8 | Partial | tests directory | TUI PTY breadth and full failure injection incomplete |
@@ -70,11 +70,11 @@ Status vocabulary: **Implemented** means enforced behavior with cited evidence; 
 | AC11 MCP/skills/rules/hooks/plugins usable | M8 | Partial | rules/skill/plugin slices | MCP/hooks incomplete |
 | AC12 No telemetry transmitted | M8 | Partial | source/dependency review; no telemetry path identified | Needs release audit/integration verification |
 | AC13 Test pyramid and CI gates pass | M8 | Blocked | local checks recorded per commit; workflow exists | Hosted CI/TUI E2E incomplete |
-| AC14 Representative benchmark results against baselines | M8 | Not started | — | Required release evidence absent |
+| AC14 Representative benchmark results against baselines | M8 | Partial | `docs/routing-benchmark-v1.md`; deterministic routing tests | Fixture baseline exists; representative repeated provider evidence remains |
 | AC15 Operational/architecture/contributor/extension/recovery docs | M8 | Implemented | docs listed here plus `contributing.md` | Must remain accurate |
 | PF01 Durable autonomous preflight covers path/Git/gh/repo capability/Rust/platform/Pi/Codex/tools/CI/secrets/persistence | M0 | Partial | `preflight.md` | Pi/Codex unavailable; repository creation capability not exercised; no live secrets probed |
 | BF01 Blockers classified; fakes never misrepresented; unrelated work continues | Every | Implemented | preflight and this matrix labels | Classification must be maintained |
-| TU01 Every release-critical TUI workflow operated through `tui-use`, multiple sizes/failures/restart, snapshots/scripts/evidence | M8 | Blocked | tool availability in preflight | No PTY evidence produced; product paths incomplete |
+| TU01 Every release-critical TUI workflow operated through `tui-use`, multiple sizes/failures/restart, snapshots/scripts/evidence | M8 | Partial | Real submission/restart exercised locally at 120×30 and 60×16; component render tests include 30×8 | Failure, timeout, permission, cancellation, recovery scripts and preserved snapshots remain |
 | DD01 All DoD tests/provider contracts/compat/benchmarks/clean checkout/secret hygiene/macOS artifact/docs satisfied before v0.1 claim | M8 | Not started | scripts and workflows establish some gates | v0.1 must not be declared complete |
 | AU01 Protect credentials/data, recoverability, ADRs/audit history, report blockers, evidence over claims | Every | Partial | security/recovery/preflight/ADR/matrix | Ongoing process requirement |
 
