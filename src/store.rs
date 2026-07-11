@@ -1,6 +1,7 @@
 use crate::{
     domain::{Artifact, AuditEvent, Checkpoint, Operation, OperationState, Task, TaskState},
     effects::OperationAuthorization,
+    verification::{DurableEvidence, VerificationRun},
 };
 use anyhow::{Result, bail};
 use chrono::Utc;
@@ -26,9 +27,15 @@ impl Store {
           CREATE TABLE IF NOT EXISTS effect_authorizations(id TEXT PRIMARY KEY, operation_id TEXT NOT NULL, task_id TEXT NOT NULL, body TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS routing_outcomes(policy_revision INTEGER NOT NULL, role TEXT NOT NULL, model TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(policy_revision,role,model));
           CREATE TABLE IF NOT EXISTS routing_recommendations(id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS verification_runs(id TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, checker_id TEXT NOT NULL, owner_role TEXT NOT NULL, policy TEXT NOT NULL, command_identity TEXT NOT NULL, started_at TEXT NOT NULL, completed_at TEXT, outcome TEXT NOT NULL, exit_status INTEGER, body TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS verification_runs_task ON verification_runs(task_id,attempt,started_at);
+          CREATE INDEX IF NOT EXISTS verification_runs_checker ON verification_runs(checker_id,started_at);
+          CREATE TABLE IF NOT EXISTS verification_evidence(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES verification_runs(id) ON DELETE CASCADE, kind TEXT NOT NULL, payload_ref TEXT, digest TEXT NOT NULL, media_type TEXT NOT NULL, size INTEGER NOT NULL, created_at TEXT NOT NULL, body TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS verification_evidence_run ON verification_evidence(run_id,created_at);
           INSERT OR IGNORE INTO schema_migrations VALUES(1, datetime('now'));
           INSERT OR IGNORE INTO schema_migrations VALUES(2, datetime('now'));
-          INSERT OR IGNORE INTO schema_migrations VALUES(3, datetime('now'));" )?;
+          INSERT OR IGNORE INTO schema_migrations VALUES(3, datetime('now'));
+          INSERT OR IGNORE INTO schema_migrations VALUES(4, datetime('now'));" )?;
         Ok(Self { conn })
     }
     pub fn save_task(&self, task: &Task) -> Result<()> {
@@ -260,6 +267,42 @@ impl Store {
             .map(|body| Ok(serde_json::from_str(&body)?))
             .collect()
     }
+    pub fn save_verification_run(&self, run: &VerificationRun) -> Result<()> {
+        if self.task(run.task_id)?.is_none() {
+            bail!("verification task does not exist")
+        }
+        self.conn.execute("INSERT INTO verification_runs(id,task_id,attempt,checker_id,owner_role,policy,command_identity,started_at,completed_at,outcome,exit_status,body) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)", params![run.id.to_string(), run.task_id.to_string(), run.attempt, run.checker_id.to_string(), format!("{:?}", run.owner_role), run.policy, run.command_identity, run.started_at.to_rfc3339(), run.completed_at.map(|v| v.to_rfc3339()), format!("{:?}", run.outcome), run.exit_status, serde_json::to_string(run)?])?;
+        Ok(())
+    }
+    pub fn save_verification_evidence(&self, evidence: &DurableEvidence) -> Result<()> {
+        if !evidence.digest.starts_with("sha256:") || evidence.digest.len() != 71 {
+            bail!("evidence digest must be sha256")
+        }
+        self.conn.execute("INSERT INTO verification_evidence(id,run_id,kind,payload_ref,digest,media_type,size,created_at,body) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![evidence.id.to_string(), evidence.run_id.to_string(), evidence.kind, evidence.payload_ref, evidence.digest, evidence.media_type, evidence.size, evidence.created_at.to_rfc3339(), serde_json::to_string(evidence)?])?;
+        Ok(())
+    }
+    pub fn verification_runs_for(&self, task_id: Uuid) -> Result<Vec<VerificationRun>> {
+        let mut s = self.conn.prepare(
+            "SELECT body FROM verification_runs WHERE task_id=?1 ORDER BY attempt,started_at",
+        )?;
+        let rows = s
+            .query_map([task_id.to_string()], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|v| Ok(serde_json::from_str(&v)?))
+            .collect()
+    }
+    pub fn verification_evidence_for(&self, run_id: Uuid) -> Result<Vec<DurableEvidence>> {
+        let mut s = self.conn.prepare(
+            "SELECT body FROM verification_evidence WHERE run_id=?1 ORDER BY created_at",
+        )?;
+        let rows = s
+            .query_map([run_id.to_string()], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|v| Ok(serde_json::from_str(&v)?))
+            .collect()
+    }
     pub fn transition(
         &mut self,
         id: Uuid,
@@ -431,6 +474,7 @@ impl Store {
             "DELETE FROM artifacts WHERE task_id=?1",
             [task_id.to_string()],
         )?;
+        tx.execute("UPDATE verification_evidence SET payload_ref=NULL, body=json_set(body,'$.payload_ref',NULL) WHERE run_id IN (SELECT id FROM verification_runs WHERE task_id=?1)", [task_id.to_string()])?;
         insert_event(
             &tx,
             task_id,

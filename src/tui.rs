@@ -483,6 +483,12 @@ fn refresh_observability(model: &mut Model, store: &Store, db_path: &Path) {
             checkpoints.chain(artifacts).collect::<Vec<_>>()
         })
         .collect();
+    for task in &model.tasks {
+        for run in store.verification_runs_for(task.id).unwrap_or_default() {
+            let evidence = store.verification_evidence_for(run.id).unwrap_or_default();
+            model.observability.artifacts.push(format!("{} · verification · attempt={} checker={} role={:?} policy={} command={} environment={} isolation={} outcome={:?} exit={:?} evidence={}", &task.id.to_string()[..8], run.attempt, run.checker_id, run.owner_role, run.policy, run.command_identity, run.environment_profile, run.isolation_profile.join(","), run.outcome, run.exit_status, evidence.iter().map(|e| format!("{}:{}:{}", e.kind, e.digest, e.payload_ref.as_deref().unwrap_or("deleted"))).collect::<Vec<_>>().join(",")));
+        }
+    }
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     model.observability.context = context::discover(&cwd, &cwd)
         .and_then(|a| context::manifest_from_assets(&a, 32_000))

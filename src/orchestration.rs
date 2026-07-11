@@ -3,6 +3,7 @@ use crate::{
     provider::PiAdapter,
     routing::{Router, RoutingRequest},
     runtime::Runtime,
+    verification::{DurableEvidence, VerificationOwnerRole, VerificationRun, VerificationStatus},
     workflow::{CheckerVerdict, DagRole, MakerCheckerFixerDag, VerificationPolicy},
 };
 use anyhow::{Result, bail};
@@ -115,6 +116,57 @@ pub fn direct_result(objective: &str) -> FinalResult {
     }
 }
 impl<A: PiAdapter> Runtime<A> {
+    fn persist_workflow_verification(
+        &self,
+        task: &Task,
+        role: DagRole,
+        policy: &VerificationPolicy,
+    ) -> Result<()> {
+        let owner_role = match role {
+            DagRole::Maker => VerificationOwnerRole::Maker,
+            DagRole::DeterministicChecker => VerificationOwnerRole::DeterministicChecker,
+            DagRole::IndependentChecker => VerificationOwnerRole::IndependentChecker,
+            DagRole::Fixer => VerificationOwnerRole::Fixer,
+            DagRole::Finalizer => VerificationOwnerRole::Finalizer,
+        };
+        let outcome = if task.state == crate::domain::TaskState::Succeeded {
+            VerificationStatus::Passed
+        } else {
+            VerificationStatus::Failed
+        };
+        let now = chrono::Utc::now();
+        let run = VerificationRun {
+            id: Uuid::new_v4(),
+            task_id: task.id,
+            attempt: task.attempts,
+            checker_id: task.id,
+            owner_role,
+            policy: serde_json::to_string(policy)?,
+            command_identity: format!("pi:{}", task.route.model),
+            environment_profile: "provider-adapter/v1".into(),
+            isolation_profile: task.route.dimensions.isolation.clone(),
+            started_at: task.created_at,
+            completed_at: Some(now),
+            outcome,
+            exit_status: None,
+        };
+        self.store.save_verification_run(&run)?;
+        if let Some(output) = &task.output {
+            let digest = format!("sha256:{}", crate::verification::digest(output.as_bytes()));
+            self.store.save_verification_evidence(&DurableEvidence {
+                id: Uuid::new_v4(),
+                run_id: run.id,
+                kind: "provider-output".into(),
+                payload_ref: Some(format!("task:{}:output", task.id)),
+                digest,
+                media_type: "text/plain".into(),
+                size: output.len() as u64,
+                created_at: now,
+            })?;
+        }
+        Ok(())
+    }
+
     pub async fn run_maker_checker_fixer(
         &self,
         objective: &str,
@@ -220,6 +272,14 @@ impl<A: PiAdapter> Runtime<A> {
         ids.insert(finalizer.id, task.id);
         task_ids.push(task.id);
         results.extend(self.run_ready().await?);
+        for (node_id, task_id) in &ids {
+            if let (Some(node), Some(result)) = (
+                dag.nodes.iter().find(|n| n.id == *node_id),
+                results.iter().find(|t| t.id == *task_id),
+            ) {
+                self.persist_workflow_verification(result, node.role.clone(), &dag.policy)?;
+            }
+        }
         Ok(WorkflowRun {
             dag,
             task_ids,

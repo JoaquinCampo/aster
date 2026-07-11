@@ -1,5 +1,6 @@
 use crate::effects::{Approval, EffectAdapter, EffectBroker, EffectRequest, ScopedGrant};
 use anyhow::{Result, bail};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
@@ -12,6 +13,45 @@ pub enum VerificationStatus {
     Inconclusive,
     Cancelled,
     TimedOut,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum VerificationOwnerRole {
+    Maker,
+    DeterministicChecker,
+    IndependentChecker,
+    Fixer,
+    Finalizer,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VerificationRun {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub attempt: u32,
+    pub checker_id: Uuid,
+    pub owner_role: VerificationOwnerRole,
+    pub policy: String,
+    pub command_identity: String,
+    pub environment_profile: String,
+    pub isolation_profile: Vec<String>,
+    pub started_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub outcome: VerificationStatus,
+    pub exit_status: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DurableEvidence {
+    pub id: Uuid,
+    pub run_id: Uuid,
+    pub kind: String,
+    /// Opaque storage or artifact identifier. Never contains payload bytes.
+    pub payload_ref: Option<String>,
+    pub digest: String,
+    pub media_type: String,
+    pub size: u64,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
