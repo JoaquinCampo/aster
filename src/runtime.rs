@@ -2,7 +2,7 @@ use crate::{
     domain::{AuditEvent, Operation, OperationState, RetryPolicy, Route, Task, TaskState},
     hooks::{HookTrigger, LifecycleHooks},
     provider::PiAdapter,
-    routing::Router,
+    routing::{Router, RoutingDecision, RoutingRequest, UserOverrides},
     store::Store,
 };
 use anyhow::{Result, bail};
@@ -72,11 +72,49 @@ impl<A: PiAdapter> Runtime<A> {
         })
     }
     pub fn submit(&self, prompt: String) -> Result<Task> {
-        self.submit_with(prompt, vec![], RetryPolicy::default(), None, None)
+        self.submit_with_overrides(
+            prompt,
+            UserOverrides::default(),
+            vec![],
+            RetryPolicy::default(),
+            None,
+            None,
+        )
     }
-    pub fn submit_with(
+    /// Selects and durably records a route with explicit, independently applied user overrides.
+    pub fn submit_with_overrides(
         &self,
         prompt: String,
+        overrides: UserOverrides,
+        dependencies: Vec<Uuid>,
+        retry: RetryPolicy,
+        timeout_ms: Option<u64>,
+        token_budget: Option<u64>,
+    ) -> Result<Task> {
+        let decision = self
+            .router
+            .decide(RoutingRequest {
+                estimated_tokens: prompt.len() as u32 * 2,
+                prompt: prompt.clone(),
+                required_quality: 0,
+                overrides: overrides.clone(),
+            })
+            .map_err(anyhow::Error::new)?;
+        self.submit_decision(
+            prompt,
+            decision,
+            overrides,
+            dependencies,
+            retry,
+            timeout_ms,
+            token_budget,
+        )
+    }
+    fn submit_decision(
+        &self,
+        prompt: String,
+        decision: RoutingDecision,
+        overrides: UserOverrides,
         dependencies: Vec<Uuid>,
         retry: RetryPolicy,
         timeout_ms: Option<u64>,
@@ -90,20 +128,45 @@ impl<A: PiAdapter> Runtime<A> {
                 bail!("dependency {id} does not exist")
             }
         }
-        let mut task = Task::new(prompt, self.router.route("placeholder"));
-        task.route = self.router.route(&task.prompt);
+        let mut task = Task::new(prompt, decision.route);
         task.dependencies = dependencies;
         task.retry = retry;
         task.timeout_ms = timeout_ms;
         task.token_budget = token_budget;
+        let trace = serde_json::json!({
+            "decision_id": task.route.decision_id,
+            "policy_revision": self.router.policy_revision,
+            "route": task.route,
+            "signals": decision.evidence,
+            "budgets": {"token_budget": token_budget, "timeout_ms": timeout_ms},
+            "overrides": overrides,
+        })
+        .to_string();
         self.store.create_task(
             &task,
             &[
-                ("route.selected", &task.route.rationale),
+                ("route.selected", trace.as_str()),
                 ("task.queued", "Task durably queued"),
             ],
         )?;
         Ok(task)
+    }
+    pub fn submit_with(
+        &self,
+        prompt: String,
+        dependencies: Vec<Uuid>,
+        retry: RetryPolicy,
+        timeout_ms: Option<u64>,
+        token_budget: Option<u64>,
+    ) -> Result<Task> {
+        self.submit_with_overrides(
+            prompt,
+            UserOverrides::default(),
+            dependencies,
+            retry,
+            timeout_ms,
+            token_budget,
+        )
     }
     pub async fn run(&self, mut task: Task) -> Result<Task> {
         if task.state != TaskState::Queued {
