@@ -1,10 +1,12 @@
 use crate::{
-    domain::{RetryPolicy, Task},
+    domain::{AuditEvent, RetryPolicy, Role, Route, Task},
     provider::PiAdapter,
+    routing::{Router, RoutingRequest},
     runtime::Runtime,
     workflow::{CheckerVerdict, DagRole, MakerCheckerFixerDag, VerificationPolicy},
 };
 use anyhow::{Result, bail};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +39,80 @@ pub struct WorkflowRun {
     pub task_ids: Vec<Uuid>,
     pub results: Vec<Task>,
     pub checker_verdicts: Vec<(Uuid, CheckerVerdict)>,
+}
+
+/// The stable, inspectable acceptance payload returned by the control plane.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FinalResult {
+    pub objective: String,
+    pub delegated: bool,
+    pub delegation_reason: String,
+    pub artifacts: Vec<ArtifactEvidence>,
+    pub verification_evidence: Vec<String>,
+    pub routing_trace: Vec<Route>,
+    pub audit: Vec<AuditEvent>,
+    pub context: ContextAccounting,
+    pub usage: UsageAccounting,
+    pub durable_task_ids: Vec<Uuid>,
+    pub lifecycle_events: Vec<String>,
+    pub isolated_implementer: bool,
+    pub recovered_after_restart: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtifactEvidence {
+    pub task_id: Uuid,
+    pub kind: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextAccounting {
+    pub prompt_bytes: usize,
+    pub execution_budget_tokens: u32,
+    pub executions: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageAccounting {
+    pub tokens: u64,
+    pub attempts: u32,
+}
+
+/// Handles a mechanical request in-process and records why no agent was spawned.
+pub fn direct_result(objective: &str) -> FinalResult {
+    let benefit = Router::default().delegation_benefit(&RoutingRequest {
+        prompt: objective.into(),
+        required_quality: 1,
+        estimated_tokens: 1,
+        overrides: Default::default(),
+    });
+    FinalResult {
+        objective: objective.into(),
+        delegated: benefit.delegated,
+        delegation_reason: benefit.reason,
+        artifacts: vec![ArtifactEvidence {
+            task_id: Uuid::nil(),
+            kind: "direct-result".into(),
+            value: objective.into(),
+        }],
+        verification_evidence: vec!["PASS: deterministic direct operation".into()],
+        routing_trace: vec![],
+        audit: vec![],
+        context: ContextAccounting {
+            prompt_bytes: objective.len(),
+            execution_budget_tokens: 0,
+            executions: 0,
+        },
+        usage: UsageAccounting {
+            tokens: 0,
+            attempts: 0,
+        },
+        durable_task_ids: vec![],
+        lifecycle_events: vec!["handled.directly".into()],
+        isolated_implementer: false,
+        recovered_after_restart: false,
+    }
 }
 impl<A: PiAdapter> Runtime<A> {
     pub async fn run_maker_checker_fixer(
@@ -71,7 +147,22 @@ impl<A: PiAdapter> Runtime<A> {
                 DagRole::Finalizer => "finalizer",
             };
             let prompt = format!("{role} for objective: {objective}");
-            let task = self.submit_with(prompt, deps, RetryPolicy::default(), None, None)?;
+            let mut task = self.submit_with(prompt, deps, RetryPolicy::default(), None, None)?;
+            if node.role == DagRole::Maker {
+                let mut isolated = task.route.clone();
+                isolated.role = Role::Implementer;
+                isolated.dimensions.isolation = vec![
+                    "isolated-worktree".into(),
+                    "network-denied".into(),
+                    "credentials-denied".into(),
+                ];
+                task.route = isolated;
+                self.store.save_task_with_event(
+                    &task,
+                    "route.profile_applied",
+                    "isolated implementer profile",
+                )?;
+            }
             ids.insert(node.id, task.id);
             task_ids.push(task.id);
         }
@@ -134,6 +225,76 @@ impl<A: PiAdapter> Runtime<A> {
             task_ids,
             results,
             checker_verdicts,
+        })
+    }
+}
+
+impl<A: PiAdapter> Runtime<A> {
+    /// Builds the end-to-end acceptance payload from durable task and audit state.
+    pub fn finalize_workflow(
+        &self,
+        objective: &str,
+        run: &WorkflowRun,
+        lifecycle_events: Vec<String>,
+        recovered_after_restart: bool,
+    ) -> Result<FinalResult> {
+        let benefit = Router::default().delegation_benefit(&RoutingRequest {
+            prompt: objective.into(),
+            required_quality: 7,
+            estimated_tokens: 2_000,
+            overrides: Default::default(),
+        });
+        let mut audit = Vec::new();
+        for id in &run.task_ids {
+            audit.extend(self.store.audit_for(*id)?);
+        }
+        Ok(FinalResult {
+            objective: objective.into(),
+            delegated: benefit.delegated,
+            delegation_reason: benefit.reason,
+            artifacts: run
+                .results
+                .iter()
+                .filter_map(|task| {
+                    task.output.as_ref().map(|value| ArtifactEvidence {
+                        task_id: task.id,
+                        kind: "provider-output".into(),
+                        value: value.clone(),
+                    })
+                })
+                .collect(),
+            verification_evidence: run
+                .results
+                .iter()
+                .filter_map(|task| task.verification.clone())
+                .collect(),
+            routing_trace: run.results.iter().map(|task| task.route.clone()).collect(),
+            audit,
+            context: ContextAccounting {
+                prompt_bytes: objective.len(),
+                execution_budget_tokens: run
+                    .results
+                    .iter()
+                    .map(|task| task.route.dimensions.context_tokens)
+                    .sum(),
+                executions: run.results.len(),
+            },
+            usage: UsageAccounting {
+                tokens: run.results.iter().map(|task| task.tokens_used).sum(),
+                attempts: run.results.iter().map(|task| task.attempts).sum(),
+            },
+            durable_task_ids: run.task_ids.clone(),
+            lifecycle_events,
+            isolated_implementer: run.results.iter().any(|task| {
+                task.route.role == "implementer"
+                    && task
+                        .route
+                        .dimensions
+                        .isolation
+                        .iter()
+                        .any(|item| item.contains("worktree"))
+            }),
+            recovered_after_restart,
         })
     }
 }

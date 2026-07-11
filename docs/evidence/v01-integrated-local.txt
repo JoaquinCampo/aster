@@ -1,0 +1,13 @@
+v0.1 integrated code acceptance — local locked-gate evidence
+Run date: 2026-07-11
+Scope: deterministic code-level workflow; no PTY, hosted Actions, or live-provider claim.
+
+PASS cargo fmt --all -- --check
+PASS cargo clippy --locked --all-targets --all-features -- -D warnings
+PASS cargo test --locked --all-targets --all-features
+  v01_local_gaps: 7 passed, including v01_integrated_acceptance_covers_all_thirteen_steps
+  and v01_trivial_request_is_direct_without_subagent
+PASS cargo audit --deny warnings (329 dependencies scanned)
+PASS scripts/scan-secrets.sh
+
+Clean-checkout gate is recorded after staging by its own script output and commit history.

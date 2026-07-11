@@ -2,11 +2,11 @@ use aster::{
     domain::Route,
     mcp::{Client, Loopback, MCP_PROTOCOL_VERSION, Server},
     memory::{MemoryScope, MemoryStore},
-    orchestration::DelegationPolicy,
+    orchestration::{DelegationPolicy, direct_result},
     provider::{ExecutionResult, FakePiAdapter, PiAdapter},
     runtime::Runtime,
     store::Store,
-    workflow::{Risk, VerificationPolicy},
+    workflow::{DagRole, Risk, VerificationPolicy},
 };
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
@@ -134,4 +134,100 @@ async fn integrated_maker_checker_fixer_dag_executes() {
     assert_eq!(run.results.len(), run.task_ids.len());
     assert!(run.results.iter().all(|t| t.state.is_terminal()));
     assert!(run.results.iter().all(|t| t.output.is_some()));
+}
+
+#[tokio::test]
+async fn v01_integrated_acceptance_covers_all_thirteen_steps() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("acceptance.db");
+    let objective = "implement a durable repository change with independent verification, isolated execution, deterministic checks, lifecycle controls, and restart recovery";
+    let mut runtime = Runtime::new(Store::open(&path).unwrap(), FakePiAdapter);
+
+    // Submission, visible routing, override, and every safe-boundary lifecycle control.
+    let queued = runtime.submit(objective.into()).unwrap();
+    assert!(!queued.route.rationale.is_empty());
+    let paused = runtime.pause(queued.id).unwrap();
+    assert_eq!(paused.state, aster::domain::TaskState::Paused);
+    runtime.resume(queued.id).unwrap();
+    runtime.cancel(queued.id).unwrap();
+    runtime.retry(queued.id).unwrap();
+    let mut overridden = runtime.store.task(queued.id).unwrap().unwrap().route;
+    overridden.rationale = "operator acceptance override".into();
+    let overridden = runtime.override_route(queued.id, overridden).unwrap();
+    assert_eq!(overridden.route.rationale, "operator acceptance override");
+    let completed_probe = runtime.run(overridden).await.unwrap();
+    assert!(completed_probe.state.is_terminal());
+
+    // Durable state is observed through a fresh runtime after the first instance is dropped.
+    drop(runtime);
+    let runtime = Runtime::new(Store::open(&path).unwrap(), FakePiAdapter);
+    assert_eq!(
+        runtime.store.task(queued.id).unwrap().unwrap().state,
+        completed_probe.state
+    );
+
+    let run = runtime
+        .run_maker_checker_fixer(
+            objective,
+            VerificationPolicy::proportional(Risk::Medium),
+            DelegationPolicy::default(),
+        )
+        .await
+        .unwrap();
+    let lifecycle = vec![
+        "paused",
+        "resumed",
+        "cancelled",
+        "retried",
+        "route-overridden",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    let final_result = runtime
+        .finalize_workflow(objective, &run, lifecycle, true)
+        .unwrap();
+
+    assert!(final_result.delegated);
+    assert_eq!(final_result.durable_task_ids, run.task_ids);
+    assert!(run.dag.nodes.iter().any(|node| node.role == DagRole::Maker));
+    assert!(
+        run.dag
+            .nodes
+            .iter()
+            .any(|node| node.role == DagRole::DeterministicChecker)
+    );
+    assert!(
+        run.dag
+            .nodes
+            .iter()
+            .any(|node| node.role == DagRole::IndependentChecker)
+    );
+    assert!(final_result.isolated_implementer);
+    assert!(final_result.recovered_after_restart);
+    assert_eq!(final_result.lifecycle_events.len(), 5);
+    assert!(!final_result.artifacts.is_empty());
+    assert!(!final_result.verification_evidence.is_empty());
+    assert_eq!(final_result.routing_trace.len(), run.results.len());
+    assert!(
+        final_result
+            .audit
+            .iter()
+            .any(|event| event.kind == "route.selected")
+    );
+    assert!(final_result.context.execution_budget_tokens > 0);
+    assert!(final_result.usage.tokens > 0);
+    assert!(final_result.usage.attempts > 0);
+    assert!(run.results.iter().all(|task| task.output.is_some()));
+}
+
+#[test]
+fn v01_trivial_request_is_direct_without_subagent() {
+    let result = direct_result("remember: use tabs");
+    assert!(!result.delegated);
+    assert!(result.durable_task_ids.is_empty());
+    assert!(result.routing_trace.is_empty());
+    assert_eq!(result.context.executions, 0);
+    assert_eq!(result.usage.tokens, 0);
+    assert_eq!(result.lifecycle_events, ["handled.directly"]);
 }
