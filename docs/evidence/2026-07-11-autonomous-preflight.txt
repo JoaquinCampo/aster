@@ -1,0 +1,34 @@
+PASS	git worktree
+PASS	origin remote configured
+PASS	project MIT license
+PASS	Pi agent package pinned
+PASS	Pi AI package pinned
+PASS	Pi source revision recorded
+PASS	Pi license recorded
+PASS	Pi source-backed sidecar import
+PASS	Pi deterministic integration coverage
+PASS	Codex bridge contract recorded
+PASS	Codex live evidence preserved
+PASS	tui-use acceptance driver
+PASS	TUI PTY evidence preserved
+PASS	macOS arm64 CI runner
+PASS	native arm64 CI assertion
+PASS	autonomous preflight CI gate
+PASS	tracked-file secret scan
+PASS	Pi child environment allowlist
+PASS	local persistence ignored
+PASS	SQLite persistence default
+PASS	persistence restart coverage
+PASS	clean-checkout release validation
+PASS	no-telemetry release gate
+
+DISCOVERED	root=/Users/joaquincamponario/Documents/Personal/my-harness
+DISCOVERED	head=d1a31310f9ca415be27b262cb5ee84869cce9f17
+DISCOVERED	branch=main
+DISCOVERED	origin=git@github.com:JoaquinCampo/aster.git
+DISCOVERED	platform=Darwin-arm64
+DISCOVERED	rustc=rustc 1.96.1 (31fca3adb 2026-06-26) (Homebrew)
+DISCOVERED	cargo=cargo 1.96.1 (356927216 2026-06-26) (Homebrew)
+DISCOVERED	gh=gh version 2.83.2 (2025-12-10)
+DISCOVERED	repository=JoaquinCampo/aster public=true default=main url=https://github.com/JoaquinCampo/aster
+PASS	GitHub authentication available (token value not read)
