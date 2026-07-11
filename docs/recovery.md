@@ -16,6 +16,10 @@ Lifecycle states remain distinct: queued, running, pausing, paused, cancelling, 
 6. Run deterministic verification and retain safe evidence.
 7. Resume dependent work only after reconciliation.
 
+## Checkpoints and artifacts
+
+Each operation persists normalized checkpoints and artifacts under an immutable task/attempt/operation owner tuple. Payload integrity is verified with a `sha256:` digest before insertion. Provider output records include media type and route/model decision provenance; dependent DAG tasks resolve successful parents' artifact digests at their operation-intent checkpoint. Restart recovery changes only in-flight task/operation state: existing checkpoint and artifact rows remain inspectable in the TUI Artifact screen and are never inferred to prove an unknown external outcome.
+
 ## Database restore
 
 Restore only from a consistent stopped-process backup. Keep the damaged database read-only until investigation completes. A backup can lose later effects; reconcile external state before replay. Never edit append-only events to make state appear healthy and never delete the database as a recovery shortcut.

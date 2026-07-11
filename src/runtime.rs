@@ -1,5 +1,8 @@
 use crate::{
-    domain::{AuditEvent, Operation, OperationState, RetryPolicy, Route, Task, TaskState},
+    domain::{
+        Artifact, AuditEvent, Checkpoint, Operation, OperationState, RetryPolicy, Route, Task,
+        TaskState,
+    },
     hooks::{HookTrigger, LifecycleHooks},
     provider::PiAdapter,
     routing::{Router, RoutingDecision, RoutingRequest, UserOverrides},
@@ -9,6 +12,7 @@ use crate::{
 use anyhow::{Result, bail};
 use chrono::Utc;
 use futures_util::future::join_all;
+use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -252,6 +256,54 @@ impl<A: PiAdapter> Runtime<A> {
             }))?,
         )
     }
+    fn checkpoint(&self, task: &Task, op: &Operation, phase: &str, payload: String) -> Result<()> {
+        let checkpoint = Checkpoint {
+            id: Uuid::new_v4(),
+            task_id: task.id,
+            attempt: op.attempt,
+            operation_id: op.id,
+            phase: phase.into(),
+            digest: format!("sha256:{:x}", Sha256::digest(payload.as_bytes())),
+            payload,
+            created_at: Utc::now(),
+        };
+        self.store.save_checkpoint(&checkpoint)?;
+        self.event(
+            task,
+            "checkpoint.saved",
+            format!(
+                "id={} operation={} attempt={} phase={} digest={}",
+                checkpoint.id, op.id, op.attempt, phase, checkpoint.digest
+            ),
+        )
+    }
+    fn persist_output_artifact(&self, task: &Task, op: &Operation, output: &str) -> Result<()> {
+        let content = output.as_bytes().to_vec();
+        let artifact = Artifact {
+            id: Uuid::new_v4(),
+            task_id: task.id,
+            attempt: op.attempt,
+            operation_id: op.id,
+            name: "provider-output.txt".into(),
+            media_type: "text/plain; charset=utf-8".into(),
+            digest: format!("sha256:{:x}", Sha256::digest(&content)),
+            content,
+            provenance: format!(
+                "provider:{};decision:{}",
+                task.route.model, task.route.decision_id
+            ),
+            created_at: Utc::now(),
+        };
+        self.store.save_artifact(&artifact)?;
+        self.event(
+            task,
+            "artifact.persisted",
+            format!(
+                "id={} operation={} attempt={} name={} digest={} provenance={}",
+                artifact.id, op.id, op.attempt, artifact.name, artifact.digest, artifact.provenance
+            ),
+        )
+    }
     pub async fn run(&self, mut task: Task) -> Result<Task> {
         if task.state != TaskState::Queued {
             bail!("task is not queued")
@@ -279,6 +331,23 @@ impl<A: PiAdapter> Runtime<A> {
                 completed_at: None,
             };
             self.store.start_operation(&task, &op)?;
+            let inputs = self.store.dependency_artifacts(&task)?;
+            self.checkpoint(&task, &op, "operation-intent", serde_json::json!({"state": task.state, "dependency_artifacts": inputs.iter().map(|a| &a.digest).collect::<Vec<_>>()}).to_string())?;
+            if !inputs.is_empty() {
+                self.event(
+                    &task,
+                    "artifact.inputs_resolved",
+                    format!(
+                        "count={} digests={}",
+                        inputs.len(),
+                        inputs
+                            .iter()
+                            .map(|a| a.digest.as_str())
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    ),
+                )?;
+            }
             self.hook(&task, HookTrigger::BeforeTask, "attempt_started")?;
             op.state = OperationState::Running;
             self.store.save_operation(&op)?;
@@ -316,6 +385,7 @@ impl<A: PiAdapter> Runtime<A> {
                 Ok(Some(r)) => {
                     task.tokens_used = task.tokens_used.saturating_add(r.usage_tokens);
                     task.output = Some(r.output.clone());
+                    self.persist_output_artifact(&task, &op, &r.output)?;
                     if task.token_budget.is_some_and(|b| task.tokens_used > b) {
                         task.state = TaskState::Failed;
                         task.failure_reason = Some("token budget exceeded".into());
@@ -338,6 +408,7 @@ impl<A: PiAdapter> Runtime<A> {
                 self.hook(&task, HookTrigger::OnFailure, "attempt_terminal")?;
             }
             self.store.finish_operation(&task, &op)?;
+            self.checkpoint(&task, &op, "operation-terminal", serde_json::json!({"state": task.state, "tokens_used": task.tokens_used, "failure_reason": task.failure_reason}).to_string())?;
             let latency_ms = op
                 .completed_at
                 .map(|end| (end - op.started_at).num_milliseconds().max(0) as u64)

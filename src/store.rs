@@ -1,10 +1,11 @@
 use crate::{
-    domain::{AuditEvent, Operation, OperationState, Task, TaskState},
+    domain::{Artifact, AuditEvent, Checkpoint, Operation, OperationState, Task, TaskState},
     effects::OperationAuthorization,
 };
 use anyhow::{Result, bail};
 use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 pub struct Store {
@@ -18,11 +19,16 @@ impl Store {
           CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, body TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS audit(seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, task_id TEXT NOT NULL, body TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS operations(id TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, body TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS checkpoints(id TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, operation_id TEXT NOT NULL, phase TEXT NOT NULL, body TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS checkpoints_owner ON checkpoints(task_id,attempt,operation_id);
+          CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, operation_id TEXT NOT NULL, digest TEXT NOT NULL, body TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS artifacts_owner ON artifacts(task_id,attempt,operation_id);
           CREATE TABLE IF NOT EXISTS effect_authorizations(id TEXT PRIMARY KEY, operation_id TEXT NOT NULL, task_id TEXT NOT NULL, body TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS routing_outcomes(policy_revision INTEGER NOT NULL, role TEXT NOT NULL, model TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(policy_revision,role,model));
           CREATE TABLE IF NOT EXISTS routing_recommendations(id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL);
           INSERT OR IGNORE INTO schema_migrations VALUES(1, datetime('now'));
-          INSERT OR IGNORE INTO schema_migrations VALUES(2, datetime('now'));" )?;
+          INSERT OR IGNORE INTO schema_migrations VALUES(2, datetime('now'));
+          INSERT OR IGNORE INTO schema_migrations VALUES(3, datetime('now'));" )?;
         Ok(Self { conn })
     }
     pub fn save_task(&self, task: &Task) -> Result<()> {
@@ -115,6 +121,73 @@ impl Store {
         b.into_iter()
             .map(|v| Ok(serde_json::from_str(&v)?))
             .collect()
+    }
+    fn validate_owner(&self, task_id: Uuid, attempt: u32, operation_id: Uuid) -> Result<()> {
+        let owner: Option<(String, u32)> = self
+            .conn
+            .query_row(
+                "SELECT task_id,attempt FROM operations WHERE id=?1",
+                [operation_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        if owner != Some((task_id.to_string(), attempt)) {
+            bail!("operation ownership mismatch")
+        }
+        Ok(())
+    }
+    pub fn save_checkpoint(&self, checkpoint: &Checkpoint) -> Result<()> {
+        self.validate_owner(
+            checkpoint.task_id,
+            checkpoint.attempt,
+            checkpoint.operation_id,
+        )?;
+        let digest = format!("sha256:{:x}", Sha256::digest(checkpoint.payload.as_bytes()));
+        if checkpoint.digest != digest {
+            bail!("checkpoint digest mismatch")
+        }
+        self.conn.execute("INSERT INTO checkpoints(id,task_id,attempt,operation_id,phase,body) VALUES(?1,?2,?3,?4,?5,?6)", params![checkpoint.id.to_string(), checkpoint.task_id.to_string(), checkpoint.attempt, checkpoint.operation_id.to_string(), checkpoint.phase, serde_json::to_string(checkpoint)?])?;
+        Ok(())
+    }
+    pub fn checkpoints_for(&self, task_id: Uuid) -> Result<Vec<Checkpoint>> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT body FROM checkpoints WHERE task_id=?1 ORDER BY attempt,rowid")?;
+        let bodies = statement
+            .query_map([task_id.to_string()], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        bodies
+            .into_iter()
+            .map(|body| Ok(serde_json::from_str(&body)?))
+            .collect()
+    }
+    pub fn save_artifact(&self, artifact: &Artifact) -> Result<()> {
+        self.validate_owner(artifact.task_id, artifact.attempt, artifact.operation_id)?;
+        let digest = format!("sha256:{:x}", Sha256::digest(&artifact.content));
+        if artifact.digest != digest {
+            bail!("artifact digest mismatch")
+        }
+        self.conn.execute("INSERT INTO artifacts(id,task_id,attempt,operation_id,digest,body) VALUES(?1,?2,?3,?4,?5,?6)", params![artifact.id.to_string(), artifact.task_id.to_string(), artifact.attempt, artifact.operation_id.to_string(), artifact.digest, serde_json::to_string(artifact)?])?;
+        Ok(())
+    }
+    pub fn artifacts_for(&self, task_id: Uuid) -> Result<Vec<Artifact>> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT body FROM artifacts WHERE task_id=?1 ORDER BY attempt,rowid")?;
+        let bodies = statement
+            .query_map([task_id.to_string()], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        bodies
+            .into_iter()
+            .map(|body| Ok(serde_json::from_str(&body)?))
+            .collect()
+    }
+    pub fn dependency_artifacts(&self, task: &Task) -> Result<Vec<Artifact>> {
+        let mut artifacts = Vec::new();
+        for dependency in &task.dependencies {
+            artifacts.extend(self.artifacts_for(*dependency)?);
+        }
+        Ok(artifacts)
     }
     pub fn authorize_effect(&self, auth: &OperationAuthorization) -> Result<()> {
         self.conn.execute(

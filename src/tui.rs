@@ -86,6 +86,7 @@ pub struct Observability {
     pub memory: Vec<String>,
     pub plugins: Vec<String>,
     pub diagnostics: Vec<String>,
+    pub artifacts: Vec<String>,
     pub health_checked_at: String,
 }
 
@@ -438,6 +439,43 @@ fn refresh_observability(model: &mut Model, store: &Store, db_path: &Path) {
         .flat_map(|t| store.audit_for(t.id).unwrap_or_default())
         .collect();
     model.observability.audit.sort_by_key(|e| e.at);
+    model.observability.artifacts = model
+        .tasks
+        .iter()
+        .flat_map(|task| {
+            let checkpoints = store
+                .checkpoints_for(task.id)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|c| {
+                    format!(
+                        "{} · checkpoint · attempt={} operation={} phase={} digest={}",
+                        &task.id.to_string()[..8],
+                        c.attempt,
+                        c.operation_id,
+                        c.phase,
+                        c.digest
+                    )
+                });
+            let artifacts = store
+                .artifacts_for(task.id)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|a| {
+                    format!(
+                        "{} · artifact · attempt={} operation={} {} · {} · {} · {} bytes",
+                        &task.id.to_string()[..8],
+                        a.attempt,
+                        a.operation_id,
+                        a.name,
+                        a.digest,
+                        a.provenance,
+                        a.content.len()
+                    )
+                });
+            checkpoints.chain(artifacts).collect::<Vec<_>>()
+        })
+        .collect();
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     model.observability.context = context::discover(&cwd, &cwd)
         .and_then(|a| context::manifest_from_assets(&a, 32_000))
@@ -766,7 +804,7 @@ fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
             format!("Permissions/approvals [status]\ncapabilities: {}\n{}\nIsolation dimensions [six independent controls]\n{}", t.route.dimensions.capabilities.join(", "), pending, isolation_report(t))
         }).unwrap_or("No task selected".into()),
         Screen::Context => format!("Context manifest [list]\n{}", lines(&m.observability.context,"No discovered context assets")),
-        Screen::Artifacts => format!("Artifact index [all tasks · query-backed]\n{}",m.tasks.iter().map(|t|format!("{} · transcript={} · verification={} · failure={}",&t.id.to_string()[..8],if t.output.is_some(){"persisted"}else{"none"},t.verification.as_deref().unwrap_or("not run"),t.failure_reason.as_deref().unwrap_or("none"))).collect::<Vec<_>>().join("\n")),
+        Screen::Artifacts => format!("Artifact/checkpoint index [normalized · durable · query-backed]\n{}", lines(&m.observability.artifacts, "No durable checkpoints or artifacts")),
         Screen::Config => format!(
             "Config editor [schema-driven · atomic/conflict-aware]\nAll required top-level domains (↑↓ select, e enable/apply)\n{}\nEdits reload, validate, preserve unknown fields, and atomically replace; concurrent changes are rejected.",
             ConfigDocument::editable_fields().iter().enumerate().map(|(i, field)|
@@ -852,7 +890,7 @@ mod tests {
             (Screen::Context, "Context manifest [list]"),
             (
                 Screen::Artifacts,
-                "Artifact index [all tasks · query-backed]",
+                "Artifact/checkpoint index [normalized · durable · query-backed]",
             ),
             (Screen::Memory, "Memory index [list]"),
             (Screen::Providers, "Provider status [status]"),

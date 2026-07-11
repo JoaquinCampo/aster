@@ -204,6 +204,32 @@ pub enum OperationState {
     OutcomeUnknown,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Checkpoint {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub attempt: u32,
+    pub operation_id: Uuid,
+    pub phase: String,
+    pub payload: String,
+    pub digest: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Artifact {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub attempt: u32,
+    pub operation_id: Uuid,
+    pub name: String,
+    pub media_type: String,
+    pub content: Vec<u8>,
+    pub digest: String,
+    pub provenance: String,
+    pub created_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEvent {
     pub id: Uuid,

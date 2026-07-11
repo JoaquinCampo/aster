@@ -1,16 +1,16 @@
-─── salty-ocelot ───────────────────────────────────────────
+─── grand-crane ────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│
 └──────────────────────────────────────────────────────────┘
 ┌ Tasks · compact ─────────────────────────────────────────┐
-│› b66e6d41 Succeeded implement deterministic acceptance   │
+│› 3152ff85 Succeeded implement deterministic acceptance   │
 │evidence · Actions: pause=false resume=false cancel=false │
 │retry=false                                               │
-│  ed673898 TimedOut cenario:timeout · Actions: pause=false│
+│  346e20fa TimedOut cenario:timeout · Actions: pause=false│
 │resume=false cancel=false retry=true                      │
-│  11996bae Failed cenario:permission-denied · Actions:    │
+│  c9079e51 Failed cenario:permission-denied · Actions:    │
 │pause=false resume=false cancel=false retry=true          │
-│  2d21ffd9 Cancelled cenario:in-flight-cancellation ·     │
+│  638769ea Cancelled cenario:in-flight-cancellation ·     │
 └──────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────┐
 │>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│
