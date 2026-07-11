@@ -551,8 +551,12 @@ fn refresh_observability(model: &mut Model, store: &Store, db_path: &Path) {
             )
         })
         .chain([
+            "Network policy: no product telemetry; local logs/accounting never leave this host".into(),
+            "Codex destination: http://127.0.0.1:18474 · task provider communication · sends model, task context, effort".into(),
+            "xAI destination: configured endpoint only · task provider communication · sends model, task context, effort".into(),
+            "OpenAI-compatible destination: configured endpoint only · task provider communication · sends model, task context, effort".into(),
             format!("plugin registry: {} discovered", model.observability.plugins.len()),
-            "MCP: JSON-RPC client/server available · no configured live transport".into(),
+            "MCP: configured stdio process only · task/tool communication · sends method and explicitly selected tool arguments · no configured live transport".into(),
         ])
         .collect();
 }

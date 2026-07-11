@@ -29,6 +29,7 @@ jobs:
       - run: cargo install cargo-audit --locked
       - run: cargo audit --deny warnings
       - run: ./scripts/scan-secrets.sh
+      - run: ./scripts/check-no-telemetry.sh
       - run: ./scripts/validate-clean-checkout.sh
 
   macos-arm64-release:

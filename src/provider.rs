@@ -89,9 +89,42 @@ pub struct ProviderRequest {
     pub effort: ReasoningEffort,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetworkDisclosure {
+    pub destination: String,
+    pub purpose: String,
+    pub context: Vec<String>,
+    pub classification: String,
+}
+
+impl NetworkDisclosure {
+    pub fn audit_detail(&self) -> String {
+        format!(
+            "destination={} purpose={} classification={} context={}",
+            self.destination,
+            self.purpose,
+            self.classification,
+            self.context.join(",")
+        )
+    }
+
+    pub fn audit_event(&self, task_id: uuid::Uuid) -> crate::domain::AuditEvent {
+        crate::domain::AuditEvent {
+            id: uuid::Uuid::new_v4(),
+            task_id,
+            kind: "network.destination_disclosed".into(),
+            detail: self.audit_detail(),
+            at: chrono::Utc::now(),
+        }
+    }
+}
+
 #[async_trait]
 pub trait Provider: Send + Sync {
     async fn stream(&self, request: ProviderRequest) -> Result<EventStream, ProviderError>;
+    fn network_disclosure(&self) -> Option<NetworkDisclosure> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -406,6 +439,19 @@ impl Provider for OpenAiResponsesProvider {
         };
         Ok(Box::pin(output))
     }
+
+    fn network_disclosure(&self) -> Option<NetworkDisclosure> {
+        Some(NetworkDisclosure {
+            destination: self.endpoint.origin().ascii_serialization(),
+            purpose: "task provider response generation".into(),
+            context: vec![
+                "model identifier".into(),
+                "task prompt/context".into(),
+                "reasoning effort".into(),
+            ],
+            classification: "task_communication_not_product_telemetry".into(),
+        })
+    }
 }
 
 fn parse_event(value: &Value) -> Result<Option<ProviderEvent>, ProviderError> {
@@ -492,6 +538,9 @@ impl Provider for CodexBridgeProvider {
         }
         self.0.stream(r).await
     }
+    fn network_disclosure(&self) -> Option<NetworkDisclosure> {
+        self.0.network_disclosure()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -510,6 +559,9 @@ impl Provider for XaiProvider {
             ));
         }
         self.0.stream(r).await
+    }
+    fn network_disclosure(&self) -> Option<NetworkDisclosure> {
+        self.0.network_disclosure()
     }
 }
 
