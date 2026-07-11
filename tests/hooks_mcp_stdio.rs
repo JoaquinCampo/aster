@@ -73,6 +73,21 @@ fn typed_hook_success_and_failure_policies() -> Result<()> {
     Ok(())
 }
 #[test]
+fn hook_protocol_synchronization_is_stable_under_repeated_startup() -> Result<()> {
+    let runner = HookRunner::new(Broker::default());
+    for iteration in 0..100 {
+        assert_eq!(
+            runner.run(
+                &hook("hook-ok", HookFailurePolicy::FailExecution),
+                json!({"iteration": iteration})
+            )?,
+            HookOutcome::Completed(json!({"ok":true}))
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn hook_effects_require_declaration_and_use_broker() -> Result<()> {
     let broker = Broker::default();
     let log = broker.0.clone();

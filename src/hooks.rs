@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::BTreeSet,
-    io::Write,
+    io::{BufRead, BufReader, Write},
     path::PathBuf,
     process::{Command, Stdio},
     thread,
@@ -117,6 +117,37 @@ impl<B: EffectBroker> HookRunner<B> {
             .stderr(Stdio::null())
             .spawn()
             .context("spawn hook")?;
+        let stdout = BufReader::new(child.stdout.take().context("hook stdout unavailable")?);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(2);
+        thread::spawn(move || {
+            let mut stdout = stdout;
+            let mut ready = String::new();
+            if let Err(error) = stdout.read_line(&mut ready) {
+                let _ = sender.send(Err(error));
+                return;
+            }
+            if sender.send(Ok(ready.into_bytes())).is_err() {
+                return;
+            }
+            let mut response = Vec::new();
+            let result = std::io::Read::read_to_end(&mut stdout, &mut response).map(|_| response);
+            let _ = sender.send(result);
+        });
+        let ready = match receiver.recv_timeout(Duration::from_secs(5)) {
+            Ok(ready) => String::from_utf8(ready?)?,
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                self.broker.finish_spawn(operation, false)?;
+                return self.failure(spec, "hook readiness handshake timed out");
+            }
+        };
+        if ready.trim_end() != r#"{"protocol":"aster-hook-v1","ready":true}"# {
+            let _ = child.kill();
+            let _ = child.wait();
+            self.broker.finish_spawn(operation, false)?;
+            return self.failure(spec, "hook readiness handshake failed");
+        }
         let payload = serde_json::to_vec(&HookInvocation {
             trigger: spec.trigger,
             context,
@@ -127,25 +158,25 @@ impl<B: EffectBroker> HookRunner<B> {
             .context("hook stdin unavailable")?
             .write_all(&payload)?;
         let timeout = Duration::from_millis(spec.timeout_ms);
-        let started = std::time::Instant::now();
-        let output = loop {
-            if child.try_wait()?.is_some() {
-                break child.wait_with_output()?;
-            }
-            if started.elapsed() >= timeout {
+        let output = match receiver.recv_timeout(timeout) {
+            Ok(output) => output?,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 let _ = child.kill();
                 let _ = child.wait();
                 self.broker.finish_spawn(operation, false)?;
                 return self.failure(spec, "hook timed out");
             }
-            thread::sleep(Duration::from_millis(5));
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                bail!("hook response reader disconnected")
+            }
         };
-        if !output.status.success() {
+        let status = child.wait()?;
+        if !status.success() {
             self.broker.finish_spawn(operation, false)?;
             return self.failure(spec, "hook process failed");
         }
         let response: HookResponse =
-            serde_json::from_slice(&output.stdout).context("invalid hook response")?;
+            serde_json::from_slice(&output).context("invalid hook response")?;
         if let Some(error) = response.error {
             self.broker.finish_spawn(operation, false)?;
             return self.failure(spec, &error);
