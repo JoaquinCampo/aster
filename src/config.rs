@@ -1,0 +1,115 @@
+use anyhow::{Context, Result, bail};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+};
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Config {
+    pub version: u32,
+    pub context: ContextConfig,
+    pub memory: MemoryConfig,
+    #[serde(flatten)]
+    pub extensions: BTreeMap<String, toml::Value>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct ContextConfig {
+    pub total_tokens: u32,
+    pub category_tokens: BTreeMap<String, u32>,
+}
+impl Default for ContextConfig {
+    fn default() -> Self {
+        Self {
+            total_tokens: 32_000,
+            category_tokens: BTreeMap::new(),
+        }
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct MemoryConfig {
+    pub enabled: bool,
+}
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+impl Config {
+    pub fn validate(&self) -> Result<()> {
+        if self.version != 1 {
+            bail!("unsupported config version {}", self.version)
+        }
+        let sum: u32 = self.context.category_tokens.values().sum();
+        if sum > self.context.total_tokens {
+            bail!("category budgets exceed total context budget")
+        }
+        Ok(())
+    }
+    pub fn merge(&mut self, higher: Config) {
+        if higher.version != 0 {
+            self.version = higher.version
+        };
+        if higher.context != ContextConfig::default() {
+            self.context = higher.context
+        };
+        self.memory = higher.memory;
+        self.extensions.extend(higher.extensions);
+    }
+}
+#[derive(Debug, Clone)]
+pub struct ConfigDocument {
+    pub path: PathBuf,
+    pub config: Config,
+    baseline_hash: String,
+}
+impl ConfigDocument {
+    pub fn load(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref().to_path_buf();
+        let bytes = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
+        let config: Config = toml::from_str(std::str::from_utf8(&bytes)?)?;
+        config.validate()?;
+        Ok(Self {
+            path,
+            config,
+            baseline_hash: hash(&bytes),
+        })
+    }
+    pub fn save_atomic(&mut self) -> Result<()> {
+        let current = fs::read(&self.path).unwrap_or_default();
+        if hash(&current) != self.baseline_hash {
+            bail!("configuration conflict: file changed since load")
+        }
+        self.config.validate()?;
+        let bytes = toml::to_string_pretty(&self.config)?.into_bytes();
+        let parent = self.path.parent().unwrap_or(Path::new("."));
+        let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+        use std::io::Write;
+        tmp.write_all(&bytes)?;
+        tmp.as_file().sync_all()?;
+        tmp.persist(&self.path).map_err(|e| e.error)?;
+        self.baseline_hash = hash(&bytes);
+        Ok(())
+    }
+}
+pub fn load_layered(paths: &[PathBuf]) -> Result<Config> {
+    let mut out = Config {
+        version: 1,
+        ..Config::default()
+    };
+    for p in paths {
+        if p.exists() {
+            out.merge(ConfigDocument::load(p)?.config)
+        }
+    }
+    out.validate()?;
+    Ok(out)
+}
+fn hash(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
