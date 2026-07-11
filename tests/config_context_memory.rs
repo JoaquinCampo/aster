@@ -104,6 +104,23 @@ fn sparse_layers_only_override_fields_they_set() {
 }
 
 #[test]
+fn required_configuration_domains_are_typed_and_round_trip() {
+    let d = tempfile::tempdir().unwrap();
+    let path = d.path().join("all.toml");
+    fs::write(&path, "version=1\n[providers]\nenabled=true\n[models]\nenabled=true\n[roles]\nenabled=true\n[routing]\nenabled=true\n[budgets]\nenabled=true\n[permissions]\nenabled=true\n[tools_mcp]\nenabled=true\n[skills_rules]\nenabled=true\n[hooks_plugins]\nenabled=true\n[persistence]\nenabled=true\n[tui]\nenabled=true\n[verification]\nenabled=true\n[lifecycle]\nenabled=true\n").unwrap();
+    let mut doc = ConfigDocument::load(&path).unwrap();
+    assert!(doc.config.providers.enabled && doc.config.models.enabled);
+    assert!(doc.config.roles.enabled && doc.config.routing.enabled);
+    assert!(doc.config.budgets.enabled && doc.config.permissions.enabled);
+    assert!(doc.config.tools_mcp.enabled && doc.config.skills_rules.enabled);
+    assert!(doc.config.hooks_plugins.enabled && doc.config.persistence.enabled);
+    assert!(doc.config.tui.enabled && doc.config.verification.enabled);
+    assert!(doc.config.lifecycle.enabled);
+    doc.save_atomic().unwrap();
+    assert!(ConfigDocument::load(path).unwrap().config.lifecycle.enabled);
+}
+
+#[test]
 fn discovery_is_contained_hierarchical_and_project_content_is_untrusted() {
     let d = tempfile::tempdir().unwrap();
     let nested = d.path().join("a/b");

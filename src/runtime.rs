@@ -274,6 +274,9 @@ impl<A: PiAdapter> Runtime<A> {
         )
     }
     pub fn override_route(&mut self, id: Uuid, route: Route) -> Result<Task> {
+        self.router
+            .validate_route(&route)
+            .map_err(anyhow::Error::new)?;
         let mut t = self
             .store
             .task(id)?

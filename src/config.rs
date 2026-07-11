@@ -13,6 +13,19 @@ pub struct Config {
     pub version: u32,
     pub context: ContextConfig,
     pub memory: MemoryConfig,
+    pub providers: DomainConfig,
+    pub models: DomainConfig,
+    pub roles: DomainConfig,
+    pub routing: DomainConfig,
+    pub budgets: DomainConfig,
+    pub permissions: DomainConfig,
+    pub tools_mcp: DomainConfig,
+    pub skills_rules: DomainConfig,
+    pub hooks_plugins: DomainConfig,
+    pub persistence: DomainConfig,
+    pub tui: DomainConfig,
+    pub verification: DomainConfig,
+    pub lifecycle: DomainConfig,
     #[serde(flatten)]
     pub extensions: BTreeMap<String, toml::Value>,
 }
@@ -40,11 +53,30 @@ impl Default for MemoryConfig {
         Self { enabled: true }
     }
 }
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct DomainConfig {
+    pub enabled: bool,
+    pub settings: BTreeMap<String, toml::Value>,
+}
 #[derive(Debug, Clone, Default, Deserialize)]
 struct ConfigPatch {
     version: Option<u32>,
     context: Option<ContextPatch>,
     memory: Option<MemoryPatch>,
+    providers: Option<DomainConfig>,
+    models: Option<DomainConfig>,
+    roles: Option<DomainConfig>,
+    routing: Option<DomainConfig>,
+    budgets: Option<DomainConfig>,
+    permissions: Option<DomainConfig>,
+    tools_mcp: Option<DomainConfig>,
+    skills_rules: Option<DomainConfig>,
+    hooks_plugins: Option<DomainConfig>,
+    persistence: Option<DomainConfig>,
+    tui: Option<DomainConfig>,
+    verification: Option<DomainConfig>,
+    lifecycle: Option<DomainConfig>,
     #[serde(flatten)]
     extensions: BTreeMap<String, toml::Value>,
 }
@@ -85,6 +117,26 @@ impl Config {
         {
             self.memory.enabled = enabled;
         }
+        macro_rules! apply_domain {
+            ($field:ident) => {
+                if let Some(value) = patch.$field {
+                    self.$field = value;
+                }
+            };
+        }
+        apply_domain!(providers);
+        apply_domain!(models);
+        apply_domain!(roles);
+        apply_domain!(routing);
+        apply_domain!(budgets);
+        apply_domain!(permissions);
+        apply_domain!(tools_mcp);
+        apply_domain!(skills_rules);
+        apply_domain!(hooks_plugins);
+        apply_domain!(persistence);
+        apply_domain!(tui);
+        apply_domain!(verification);
+        apply_domain!(lifecycle);
         self.extensions.extend(patch.extensions);
     }
 }

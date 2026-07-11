@@ -288,18 +288,8 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
         Cmd::Resume(id) => apply_runtime(model, runtime.resume(id)),
         Cmd::Cancel(id) => apply_runtime(model, runtime.cancel(id)),
         Cmd::Retry(id) => apply_runtime(model, runtime.retry(id)),
-        Cmd::Override(id) => {
-            let result = model
-                .tasks
-                .iter()
-                .find(|t| t.id == id)
-                .cloned()
-                .map(|mut t| {
-                    t.route.model = "manual-override".into();
-                    runtime.override_route(id, t.route)
-                })
-                .unwrap_or_else(|| Err(anyhow::anyhow!("task not found")));
-            apply_runtime(model, result);
+        Cmd::Override(_) => {
+            model.status = "route override unavailable: no model picker is implemented".into();
         }
         Cmd::None => {}
     }
@@ -354,10 +344,10 @@ fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
         Screen::Routing => selected.map(|t|format!("role: {}\nmodel: {}\neffort: {}\nrationale: {}",t.route.role,t.route.model,t.route.dimensions.effort,t.route.rationale)).unwrap_or("No task".into()),
         Screen::Usage => selected.map(|t|format!("tokens: {} / {}",t.tokens_used,t.token_budget.map(|x|x.to_string()).unwrap_or("unlimited".into()))).unwrap_or("No usage".into()),
         Screen::Transcripts => selected.and_then(|t|t.output.clone()).unwrap_or("No transcript yet".into()),
-        Screen::Audit => "Audit events are persisted by the runtime store.".into(), Screen::Approvals => "No pending approvals · permissions inherited from runtime policy.".into(),
-        Screen::Context => "Context window · sources · compaction state".into(), Screen::Artifacts => selected.and_then(|t|t.verification.clone()).unwrap_or("No artifacts, diffs, or evidence".into()),
-        Screen::Config => "Configuration is loaded from the existing config subsystem.".into(), Screen::Memory => "Memory index and retention status".into(),
-        Screen::Providers => "Pi adapter · healthy · deterministic fake available".into(), Screen::Plugins => "No plugins registered".into(),
+        Screen::Audit => "Audit view unavailable: event querying is not wired to the TUI.".into(), Screen::Approvals => "Approvals view unavailable: no approval query is implemented.".into(),
+        Screen::Context => "Context detail unavailable: no runtime context query is implemented.".into(), Screen::Artifacts => selected.and_then(|t|t.verification.clone()).unwrap_or("No persisted verification evidence for selected task".into()),
+        Screen::Config => "Config view unavailable: configuration querying is not wired to the TUI.".into(), Screen::Memory => "Memory view unavailable: index status is not queried.".into(),
+        Screen::Providers => "Provider health unavailable: no health probe has been run. Runtime uses the deterministic fake adapter.".into(), Screen::Plugins => "Plugin state unavailable: registry querying is not wired to the TUI.".into(),
     };
     let title = if compact {
         format!(" {} · compact ", m.screen.title())

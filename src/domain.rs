@@ -8,20 +8,28 @@ use uuid::Uuid;
 #[serde(rename_all = "kebab-case")]
 pub enum Role {
     Orchestrator,
+    Explorer,
+    Planner,
     Implementer,
     Reviewer,
-    Researcher,
-    Tester,
+    Verifier,
+    Fixer,
+    Advisor,
+    LearningCapture,
     Custom(String),
 }
 impl Role {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Orchestrator => "orchestrator",
+            Self::Explorer => "explorer",
+            Self::Planner => "planner",
             Self::Implementer => "implementer",
             Self::Reviewer => "reviewer",
-            Self::Researcher => "researcher",
-            Self::Tester => "tester",
+            Self::Verifier => "verifier",
+            Self::Fixer => "fixer",
+            Self::Advisor => "advisor",
+            Self::LearningCapture => "learning-capture",
             Self::Custom(v) => v,
         }
     }
