@@ -431,3 +431,152 @@ impl Registry {
         self.endpoints.get(name)
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompatibilityDiagnostic {
+    pub compatible: bool,
+    pub plugin_id: Option<String>,
+    pub plugin_version: Option<String>,
+    pub messages: Vec<String>,
+}
+
+pub fn diagnose(source: &Path) -> CompatibilityDiagnostic {
+    match PluginManifest::load(&source.join("plugin.toml")) {
+        Ok(manifest) => CompatibilityDiagnostic {
+            compatible: true,
+            plugin_id: Some(manifest.id),
+            plugin_version: Some(manifest.version),
+            messages: vec![format!(
+                "compatible with {HOST_PROTOCOL} protocol v{HOST_PROTOCOL_VERSION}"
+            )],
+        },
+        Err(error) => CompatibilityDiagnostic {
+            compatible: false,
+            plugin_id: None,
+            plugin_version: None,
+            messages: vec![error.to_string()],
+        },
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallAction {
+    Installed,
+    Upgraded { from: String },
+    Uninstalled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallReceipt {
+    pub plugin_id: String,
+    pub version: String,
+    pub action: InstallAction,
+}
+
+pub struct PluginInstaller {
+    root: PathBuf,
+}
+impl PluginInstaller {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
+
+    pub fn install(&self, source: &Path) -> Result<InstallReceipt> {
+        fs::create_dir_all(&self.root)?;
+        let candidate = PluginManifest::load(&source.join("plugin.toml"))?;
+        let destination = self.root.join(&candidate.id);
+        let staging = self.root.join(format!(".{}.staging", candidate.id));
+        let backup = self.root.join(format!(".{}.rollback", candidate.id));
+        remove_any(&staging)?;
+        copy_tree(source, &staging).context("stage plugin")?;
+        let staged =
+            PluginManifest::load_with_root(&staging.join("plugin.toml"), &staging.canonicalize()?)
+                .context("validate staged plugin")?;
+        if staged.id != candidate.id || staged.version != candidate.version {
+            bail!("staged plugin identity changed")
+        }
+        let previous = if destination.exists() {
+            Some(PluginManifest::load(&destination.join("plugin.toml"))?.version)
+        } else {
+            None
+        };
+        remove_any(&backup)?;
+        if destination.exists() {
+            fs::rename(&destination, &backup)?;
+        }
+        if let Err(error) = fs::rename(&staging, &destination) {
+            if backup.exists() {
+                let _ = fs::rename(&backup, &destination);
+            }
+            return Err(error).context("activate plugin; previous installation restored");
+        }
+        if let Err(error) = PluginManifest::load(&destination.join("plugin.toml")) {
+            remove_any(&destination)?;
+            if backup.exists() {
+                fs::rename(&backup, &destination)?;
+            }
+            return Err(error)
+                .context("post-install validation failed; previous installation restored");
+        }
+        remove_any(&backup)?;
+        Ok(InstallReceipt {
+            plugin_id: candidate.id,
+            version: candidate.version,
+            action: previous.map_or(InstallAction::Installed, |from| InstallAction::Upgraded {
+                from,
+            }),
+        })
+    }
+
+    pub fn uninstall(&self, id: &str) -> Result<InstallReceipt> {
+        if id.is_empty()
+            || id
+                .chars()
+                .any(|c| !(c.is_ascii_alphanumeric() || ".-_".contains(c)))
+        {
+            bail!("invalid plugin id")
+        }
+        let destination = self.root.join(id);
+        let manifest = PluginManifest::load(&destination.join("plugin.toml"))
+            .context("plugin is not installed")?;
+        let quarantine = self.root.join(format!(".{id}.uninstalling"));
+        remove_any(&quarantine)?;
+        fs::rename(&destination, &quarantine)?;
+        if let Err(error) = remove_any(&quarantine) {
+            let _ = fs::rename(&quarantine, &destination);
+            return Err(error).context("uninstall failed; plugin restored");
+        }
+        Ok(InstallReceipt {
+            plugin_id: manifest.id,
+            version: manifest.version,
+            action: InstallAction::Uninstalled,
+        })
+    }
+}
+
+fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
+    if !source.is_dir() {
+        bail!("plugin source is not a directory")
+    }
+    fs::create_dir(destination)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let target = destination.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_tree(&entry.path(), &target)?;
+        } else if entry.file_type()?.is_file() {
+            fs::copy(entry.path(), target)?;
+        } else {
+            bail!("plugin source contains unsupported filesystem entry")
+        }
+    }
+    Ok(())
+}
+fn remove_any(path: &Path) -> Result<()> {
+    if path.is_dir() {
+        fs::remove_dir_all(path)?;
+    } else if path.exists() {
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}

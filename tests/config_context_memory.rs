@@ -4,7 +4,7 @@ use aster::{
     memory::{MemoryScope, MemoryStore},
 };
 use sha2::Digest;
-use std::fs;
+use std::{fs, path::PathBuf};
 #[test]
 fn config_unknown_roundtrip_and_conflict() {
     let d = tempfile::tempdir().unwrap();
@@ -63,6 +63,41 @@ fn nested_discovery_claude_wins_and_reports_unsupported() {
     let m = manifest_from_assets(&assets, 100).unwrap();
     assert_eq!(m.items[0].provenance.ecosystem, ".claude");
 }
+
+#[test]
+fn compatibility_fixture_inventory_is_exhaustive_and_reasons_are_actionable() {
+    let root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/compat/nested/project");
+    let assets = discover(&root, &root.join("src")).unwrap();
+    for suffix in [
+        "plugin.json",
+        "settings.json",
+        "commands/review.md",
+        "agents/reviewer.md",
+        "mcp.json",
+    ] {
+        let asset = assets
+            .iter()
+            .find(|asset| asset.path.ends_with(suffix))
+            .unwrap();
+        assert!(
+            !asset.supported,
+            "{suffix} must not be overstated as supported"
+        );
+        assert!(
+            asset
+                .reason
+                .as_deref()
+                .is_some_and(|reason| reason != "unsupported asset type")
+        );
+    }
+    assert!(
+        assets
+            .iter()
+            .any(|asset| asset.supported && asset.path.ends_with("SKILL.md"))
+    );
+}
+
 #[test]
 fn memory_dedup_contradiction_and_delete_erases_payload() {
     let d = tempfile::tempdir().unwrap();

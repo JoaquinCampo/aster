@@ -89,25 +89,7 @@ pub fn discover(project_root: &Path, working_dir: &Path) -> Result<Vec<Discovere
                 walk_skills(&skills, scope, &base, eco, &mut merged)?
             }
             if base.is_dir() {
-                for entry in fs::read_dir(&base)? {
-                    let p = entry?.path();
-                    if p.is_file()
-                        && !matches!(
-                            p.file_name().and_then(|x| x.to_str()),
-                            Some("AGENTS.md" | "CLAUDE.md")
-                        )
-                    {
-                        insert(
-                            &mut merged,
-                            scope,
-                            &base,
-                            p,
-                            eco,
-                            false,
-                            Some("unsupported asset type".into()),
-                        )
-                    }
-                }
+                walk_assets(&base, scope, &base, eco, &mut merged)?;
             }
         }
     }
@@ -135,6 +117,56 @@ fn insert(
         map.insert(key, asset);
     }
 }
+fn walk_assets(
+    dir: &Path,
+    scope: &Path,
+    base: &Path,
+    eco: &str,
+    map: &mut BTreeMap<PathBuf, DiscoveredAsset>,
+) -> Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            walk_assets(&path, scope, base, eco, map)?;
+        } else {
+            let relative = path.strip_prefix(base).unwrap_or(&path);
+            let supported = matches!(
+                relative.file_name().and_then(|name| name.to_str()),
+                Some("AGENTS.md" | "CLAUDE.md" | "SKILL.md")
+            ) && (relative.components().count() == 1
+                || relative.starts_with("skills"));
+            let reason = (!supported).then(|| unsupported_reason(relative));
+            insert(map, scope, base, path, eco, supported, reason);
+        }
+    }
+    Ok(())
+}
+
+fn unsupported_reason(relative: &Path) -> String {
+    let top = relative
+        .components()
+        .next()
+        .and_then(|c| c.as_os_str().to_str());
+    match top {
+        Some("agents") => "agent definitions are inventoried but not executed".into(),
+        Some("commands") => "slash commands are inventoried but not executed".into(),
+        Some("hooks") => {
+            "ecosystem hooks are inventoried but require native hook configuration".into()
+        }
+        Some("mcp.json" | ".mcp.json") => {
+            "ecosystem MCP declarations are inventoried but require native MCP configuration".into()
+        }
+        Some("settings.json" | "settings.local.json") => {
+            "ecosystem settings are inventoried but not imported".into()
+        }
+        Some("plugin.json" | "plugins") => {
+            "ecosystem plugin declarations are inventoried but require a native plugin manifest"
+                .into()
+        }
+        _ => "unsupported asset type".into(),
+    }
+}
+
 fn walk_skills(
     dir: &Path,
     scope: &Path,

@@ -96,3 +96,53 @@ max_version = 1
     std::fs::write(plugin.join("plugin.toml"), manifest).unwrap();
     assert!(discover(&[installs.path().to_path_buf()]).is_err());
 }
+
+#[test]
+fn install_upgrade_diagnostics_failure_isolation_and_uninstall() -> Result<()> {
+    use aster::plugin::{InstallAction, PluginInstaller, PluginManifest, diagnose};
+    let temp = tempfile::tempdir()?;
+    let source = temp.path().join("source");
+    copy_dir(&root().join("echo"), &source)?;
+    let installs = temp.path().join("installed");
+    let installer = PluginInstaller::new(&installs);
+    let diagnostic = diagnose(&source);
+    assert!(diagnostic.compatible, "{:?}", diagnostic.messages);
+    assert_eq!(installer.install(&source)?.action, InstallAction::Installed);
+    let manifest = source.join("plugin.toml");
+    let text =
+        std::fs::read_to_string(&manifest)?.replace("version = \"1.0.0\"", "version = \"2.0.0\"");
+    std::fs::write(&manifest, text)?;
+    assert_eq!(
+        installer.install(&source)?.action,
+        InstallAction::Upgraded {
+            from: "1.0.0".into()
+        }
+    );
+    std::fs::write(&manifest, "not toml")?;
+    assert!(installer.install(&source).is_err());
+    assert_eq!(
+        PluginManifest::load(&installs.join("fixture.echo/plugin.toml"))?.version,
+        "2.0.0"
+    );
+    assert!(!diagnose(&source).compatible);
+    assert_eq!(
+        installer.uninstall("fixture.echo")?.action,
+        InstallAction::Uninstalled
+    );
+    assert!(!installs.join("fixture.echo").exists());
+    Ok(())
+}
+
+fn copy_dir(source: &std::path::Path, destination: &std::path::Path) -> Result<()> {
+    std::fs::create_dir_all(destination)?;
+    for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        let target = destination.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
+}
