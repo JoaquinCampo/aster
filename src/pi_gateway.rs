@@ -9,10 +9,10 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::BTreeSet, path::PathBuf, process::Stdio};
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::Command,
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    io::{BufRead, BufReader, Write},
+    path::{Path, PathBuf},
 };
 
 pub const PI_PROTOCOL_VERSION: u8 = 1;
@@ -84,6 +84,22 @@ struct WireError {
     message: String,
 }
 
+fn resolve_executable(executable: &Path) -> Result<PathBuf, ProviderError> {
+    if executable.components().count() > 1 {
+        return executable.canonicalize().map_err(|error| {
+            ProviderError::Transport(format!("invalid Pi node executable: {error}"))
+        });
+    }
+    let path = std::env::var_os("PATH")
+        .ok_or_else(|| ProviderError::Transport("PATH is unavailable".into()))?;
+    std::env::split_paths(&path)
+        .map(|directory| directory.join(executable))
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| ProviderError::Transport("Pi node executable not found on PATH".into()))?
+        .canonicalize()
+        .map_err(|error| ProviderError::Transport(error.to_string()))
+}
+
 impl PiGateway {
     pub fn new(sidecar: impl Into<PathBuf>) -> Self {
         Self {
@@ -97,51 +113,66 @@ impl PiGateway {
         self
     }
 
-    async fn request(&self, request: Value) -> Result<Vec<WireEvent>, ProviderError> {
-        let mut command = Command::new(&self.node);
-        command
-            .arg(&self.sidecar)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        command
-            .env_clear()
-            .env("PATH", std::env::var("PATH").unwrap_or_default());
+    pub fn launch_request(&self) -> Result<crate::effects::EffectRequest, ProviderError> {
+        let node = resolve_executable(&self.node)?;
+        let sidecar = self.sidecar.canonicalize().map_err(|error| {
+            ProviderError::Transport(format!("invalid Pi sidecar path: {error}"))
+        })?;
+        let cwd = sidecar
+            .parent()
+            .ok_or_else(|| ProviderError::Transport("Pi sidecar has no parent directory".into()))?
+            .to_owned();
+        let mut env = BTreeMap::new();
+        env.insert("PATH".into(), std::env::var("PATH").unwrap_or_default());
         if let Some(path) = &self.node_modules {
-            command.env("ASTER_PI_NODE_MODULES", path);
+            env.insert(
+                "ASTER_PI_NODE_MODULES".into(),
+                path.to_string_lossy().into_owned(),
+            );
         }
-        let mut child = command
-            .spawn()
-            .map_err(|e| ProviderError::Transport(format!("failed to start Pi sidecar: {e}")))?;
+        Ok(crate::effects::EffectRequest::Exec {
+            program: node,
+            args: vec![sidecar.to_string_lossy().into_owned()],
+            env,
+            cwd,
+        })
+    }
+
+    async fn request<A: crate::effects::EffectAdapter>(
+        &self,
+        request: Value,
+        broker: &crate::effects::EffectBroker<'_, A>,
+        grant: &crate::effects::ScopedGrant,
+        approval: &crate::effects::Approval,
+    ) -> Result<Vec<WireEvent>, ProviderError> {
+        let (_, mut child) = broker
+            .spawn_authorized_interactive(grant, Some(approval), self.launch_request()?)
+            .map_err(|error| ProviderError::Transport(format!("Pi launch denied: {error}")))?;
         let mut stdin = child
             .stdin
             .take()
             .ok_or_else(|| ProviderError::Transport("sidecar stdin unavailable".into()))?;
-        stdin
-            .write_all(format!("{}\n", request).as_bytes())
-            .await
-            .map_err(|e| ProviderError::Transport(e.to_string()))?;
+        writeln!(stdin, "{request}")
+            .map_err(|error| ProviderError::Transport(error.to_string()))?;
         drop(stdin);
         let stdout = child
             .stdout
             .take()
             .ok_or_else(|| ProviderError::Transport("sidecar stdout unavailable".into()))?;
-        let mut lines = BufReader::new(stdout).lines();
         let mut events = Vec::new();
-        while let Some(line) = lines
-            .next_line()
-            .await
-            .map_err(|e| ProviderError::Transport(e.to_string()))?
-        {
-            let event: WireEvent = serde_json::from_str(&line)
-                .map_err(|e| ProviderError::Protocol(format!("invalid sidecar event: {e}")))?;
+        for line in BufReader::new(stdout).lines() {
+            let line = line.map_err(|error| ProviderError::Transport(error.to_string()))?;
+            let event: WireEvent = serde_json::from_str(&line).map_err(|error| {
+                ProviderError::Protocol(format!("invalid sidecar event: {error}"))
+            })?;
             if event.v != PI_PROTOCOL_VERSION {
+                let _ = child.kill();
                 return Err(ProviderError::Protocol(
                     "unsupported sidecar protocol".into(),
                 ));
             }
             if let Some(error) = &event.error {
+                let _ = child.kill();
                 return Err(ProviderError::Response {
                     code: error.code.clone(),
                     message: error.message.clone(),
@@ -151,8 +182,7 @@ impl PiGateway {
         }
         let status = child
             .wait()
-            .await
-            .map_err(|e| ProviderError::Transport(e.to_string()))?;
+            .map_err(|error| ProviderError::Transport(error.to_string()))?;
         if !status.success() {
             return Err(ProviderError::Transport(format!(
                 "Pi sidecar exited with {status}"
@@ -161,9 +191,19 @@ impl PiGateway {
         Ok(events)
     }
 
-    pub async fn discover(&self) -> Result<PiDiscovery, ProviderError> {
+    pub async fn discover<A: crate::effects::EffectAdapter>(
+        &self,
+        broker: &crate::effects::EffectBroker<'_, A>,
+        grant: &crate::effects::ScopedGrant,
+        approval: &crate::effects::Approval,
+    ) -> Result<PiDiscovery, ProviderError> {
         let events = self
-            .request(serde_json::json!({"v":1,"id":"discover","type":"discover"}))
+            .request(
+                serde_json::json!({"v":1,"id":"discover","type":"discover"}),
+                broker,
+                grant,
+                approval,
+            )
             .await?;
         let event = events
             .into_iter()
@@ -181,14 +221,20 @@ impl PiGateway {
         })
     }
 
-    pub async fn run_deterministic(
+    pub async fn run_deterministic<A: crate::effects::EffectAdapter>(
         &self,
         input: PiRunInput,
         allowed_capabilities: &BTreeSet<String>,
+        broker: &crate::effects::EffectBroker<'_, A>,
+        grant: &crate::effects::ScopedGrant,
+        approval: &crate::effects::Approval,
     ) -> Result<EventStream, ProviderError> {
         let events = self
             .request(
                 serde_json::json!({"v":1,"id":"run-1","type":"run","mode":"deterministic","input":input}),
+                broker,
+                grant,
+                approval,
             )
             .await?;
         let mut normalized = Vec::new();
@@ -226,7 +272,7 @@ impl PiGateway {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl PiAdapter for PiGateway {
     fn launch_isolation(&self, _route: &Route) -> Vec<crate::domain::ExecutionIsolation> {
         use crate::domain::{ExecutionIsolation, IsolationDimension};
@@ -243,7 +289,52 @@ impl PiAdapter for PiGateway {
         }).collect()
     }
 
-    async fn execute(&self, prompt: &str, route: &Route) -> anyhow::Result<ExecutionResult> {
+    async fn execute_controlled(
+        &self,
+        prompt: &str,
+        route: &Route,
+        store: &crate::store::Store,
+        task_id: uuid::Uuid,
+    ) -> anyhow::Result<ExecutionResult> {
+        use crate::effects::{
+            Approval, Capability, EffectBroker, FilesystemIsolation, IsolationProfile,
+            NetworkIsolation, ProcessIsolation, ScopedGrant, SecretIsolation, SystemAdapter,
+        };
+        let request = self.launch_request()?;
+        let (program, cwd) = match &request {
+            crate::effects::EffectRequest::Exec { program, cwd, .. } => {
+                (program.clone(), cwd.clone())
+            }
+            _ => unreachable!(),
+        };
+        let grant = ScopedGrant {
+            id: uuid::Uuid::new_v4(),
+            task_id,
+            capabilities: [Capability::ProcessExec].into_iter().collect(),
+            workspace: cwd,
+            worktrees: vec![],
+            executable_allowlist: [program].into_iter().collect(),
+            network_allowlist: BTreeSet::new(),
+            external_allowlist: BTreeSet::new(),
+            secret_destinations: BTreeMap::new(),
+            isolation: IsolationProfile {
+                filesystem: FilesystemIsolation::WorkspaceReadOnly,
+                process: ProcessIsolation::ScrubbedEnvironment,
+                network: NetworkIsolation::Denied,
+                secrets: SecretIsolation::Denied,
+            },
+            expires_at: Some(chrono::Utc::now() + chrono::Duration::minutes(5)),
+        };
+        let approval = Approval::for_request(
+            task_id,
+            grant.id,
+            &request,
+            chrono::Utc::now() + chrono::Duration::minutes(5),
+        )?;
+        let broker = EffectBroker {
+            store,
+            adapter: SystemAdapter,
+        };
         let effort = match route.dimensions.effort {
             Effort::Low => ReasoningEffort::Low,
             Effort::Medium => ReasoningEffort::Medium,
@@ -264,7 +355,9 @@ impl PiAdapter for PiGateway {
             fixture_tool: None,
         };
         let allowed = route.dimensions.capabilities.iter().cloned().collect();
-        let mut stream = self.run_deterministic(input, &allowed).await?;
+        let mut stream = self
+            .run_deterministic(input, &allowed, &broker, &grant, &approval)
+            .await?;
         let mut output = String::new();
         let mut usage_tokens = 0;
         while let Some(event) = stream.next().await {
@@ -283,5 +376,9 @@ impl PiAdapter for PiGateway {
             output,
             usage_tokens,
         })
+    }
+
+    async fn execute(&self, _prompt: &str, _route: &Route) -> anyhow::Result<ExecutionResult> {
+        anyhow::bail!("Pi execution requires trusted control-plane authorization")
     }
 }

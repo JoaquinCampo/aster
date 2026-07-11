@@ -74,7 +74,7 @@ fn delegation_is_bounded() {
     assert!(p.validate(0, 2, 2).is_err());
 }
 struct FailingChecker;
-#[async_trait]
+#[async_trait(?Send)]
 impl PiAdapter for FailingChecker {
     async fn execute(&self, prompt: &str, _: &Route) -> anyhow::Result<ExecutionResult> {
         let output = if prompt.starts_with("deterministic checker")

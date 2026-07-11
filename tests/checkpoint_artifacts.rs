@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 struct Stable;
-#[async_trait]
+#[async_trait(?Send)]
 impl PiAdapter for Stable {
     async fn execute(&self, prompt: &str, _: &aster::domain::Route) -> Result<ExecutionResult> {
         Ok(ExecutionResult {

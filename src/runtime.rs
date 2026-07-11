@@ -405,7 +405,12 @@ impl<A: PiAdapter> Runtime<A> {
             let result = match remaining_ms {
                 Some(ms) => match tokio::time::timeout(
                     Duration::from_millis(ms),
-                    self.adapter.execute(&task.prompt, &task.route),
+                    self.adapter.execute_controlled(
+                        &task.prompt,
+                        &task.route,
+                        &self.store,
+                        task.id,
+                    ),
                 )
                 .await
                 {
@@ -414,7 +419,7 @@ impl<A: PiAdapter> Runtime<A> {
                 },
                 None => self
                     .adapter
-                    .execute(&task.prompt, &task.route)
+                    .execute_controlled(&task.prompt, &task.route, &self.store, task.id)
                     .await
                     .map(Some),
             };

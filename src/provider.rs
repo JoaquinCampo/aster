@@ -636,8 +636,17 @@ pub struct ExecutionResult {
     pub output: String,
     pub usage_tokens: u64,
 }
-#[async_trait]
+#[async_trait(?Send)]
 pub trait PiAdapter: Send + Sync {
+    async fn execute_controlled(
+        &self,
+        prompt: &str,
+        route: &Route,
+        _store: &crate::store::Store,
+        _task_id: uuid::Uuid,
+    ) -> anyhow::Result<ExecutionResult> {
+        self.execute(prompt, route).await
+    }
     async fn execute(&self, prompt: &str, route: &Route) -> anyhow::Result<ExecutionResult>;
     /// Reports the concrete controls selected by this adapter for the imminent launch.
     /// The runtime persists these after creating the owning operation and before execution.
@@ -680,7 +689,7 @@ pub trait PiProcess: Send + Sync {
 
 #[derive(Default)]
 pub struct FakePiAdapter;
-#[async_trait]
+#[async_trait(?Send)]
 impl PiAdapter for FakePiAdapter {
     fn launch_isolation(&self, _route: &Route) -> Vec<crate::domain::ExecutionIsolation> {
         crate::domain::IsolationDimension::ALL

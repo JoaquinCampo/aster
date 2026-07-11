@@ -14,7 +14,7 @@ use std::sync::{
 use uuid::Uuid;
 
 struct Flaky(Arc<AtomicUsize>);
-#[async_trait]
+#[async_trait(?Send)]
 impl PiAdapter for Flaky {
     async fn execute(&self, p: &str, _: &aster::domain::Route) -> Result<ExecutionResult> {
         let n = self.0.fetch_add(1, Ordering::SeqCst);
