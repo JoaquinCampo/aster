@@ -218,6 +218,14 @@ fn validate_path(grant: &ScopedGrant, path: &Path, allow_missing_leaf: bool) -> 
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProcessOutput {
+    pub exit_code: Option<i32>,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    pub cancelled: bool,
+}
+
 #[async_trait]
 pub trait EffectAdapter: Send + Sync {
     async fn read_file(&self, path: &Path) -> Result<Vec<u8>>;
@@ -229,6 +237,22 @@ pub trait EffectAdapter: Send + Sync {
         env: &BTreeMap<String, String>,
         cwd: &Path,
     ) -> Result<Vec<u8>>;
+    async fn exec_process(
+        &self,
+        program: &Path,
+        args: &[String],
+        env: &BTreeMap<String, String>,
+        cwd: &Path,
+    ) -> Result<ProcessOutput> {
+        self.exec(program, args, env, cwd)
+            .await
+            .map(|stdout| ProcessOutput {
+                exit_code: Some(0),
+                stdout,
+                stderr: vec![],
+                cancelled: false,
+            })
+    }
     async fn network(&self, destination: &str, payload: &[u8]) -> Result<Vec<u8>>;
     async fn secret(&self, name: &str) -> Result<Vec<u8>>;
     async fn external(&self, service: &str, action: &str, payload: &[u8]) -> Result<Vec<u8>>;
@@ -261,6 +285,27 @@ impl EffectAdapter for SystemAdapter {
         }
         Ok(o.stdout)
     }
+    async fn exec_process(
+        &self,
+        p: &Path,
+        a: &[String],
+        e: &BTreeMap<String, String>,
+        cwd: &Path,
+    ) -> Result<ProcessOutput> {
+        let o = tokio::process::Command::new(p)
+            .args(a)
+            .env_clear()
+            .envs(e)
+            .current_dir(cwd)
+            .output()
+            .await?;
+        Ok(ProcessOutput {
+            exit_code: o.status.code(),
+            stdout: o.stdout,
+            stderr: o.stderr,
+            cancelled: false,
+        })
+    }
     async fn network(&self, _: &str, _: &[u8]) -> Result<Vec<u8>> {
         bail!("no network transport configured")
     }
@@ -277,6 +322,44 @@ pub struct EffectBroker<'a, A: EffectAdapter> {
     pub adapter: A,
 }
 impl<'a, A: EffectAdapter> EffectBroker<'a, A> {
+    pub async fn execute_process(
+        &self,
+        operation_id: Uuid,
+        grant: &ScopedGrant,
+        approval: Option<&Approval>,
+        request: EffectRequest,
+    ) -> Result<ProcessOutput> {
+        Policy::evaluate(grant, &request)?;
+        let hash = request_hash(&request)?;
+        if let Some(a) = approval
+            && (a.task_id != grant.task_id
+                || a.grant_id != grant.id
+                || a.request_hash != hash
+                || a.expires_at <= Utc::now())
+        {
+            bail!("approval is not bound to this request")
+        }
+        let auth = OperationAuthorization {
+            id: Uuid::new_v4(),
+            operation_id,
+            task_id: grant.task_id,
+            grant_id: grant.id,
+            approval_id: approval.map(|a| a.id),
+            request_hash: hash,
+            issued_at: Utc::now(),
+        };
+        self.store.authorize_effect(&auth)?;
+        match request {
+            EffectRequest::Exec {
+                program,
+                args,
+                env,
+                cwd,
+            } => self.adapter.exec_process(&program, &args, &env, &cwd).await,
+            _ => bail!("process execution requires an exec request"),
+        }
+    }
+
     pub async fn execute(
         &self,
         operation_id: Uuid,

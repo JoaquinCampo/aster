@@ -1,0 +1,127 @@
+use aster::{
+    verification::{CheckEvidence, VerificationStatus, digest},
+    workflow::*,
+};
+use uuid::Uuid;
+
+fn check(status: VerificationStatus) -> CheckEvidence {
+    CheckEvidence {
+        check: "test".into(),
+        status,
+        exit_code: Some(if status == VerificationStatus::Passed {
+            0
+        } else {
+            1
+        }),
+        stdout: b"out".to_vec(),
+        stderr: vec![],
+        stdout_digest: digest(b"out"),
+        stderr_digest: digest(b""),
+        artifacts: vec![],
+        detail: None,
+    }
+}
+
+#[test]
+fn proportional_templates_have_independent_parallel_checkers_and_bounded_fixers() {
+    let dag = MakerCheckerFixerDag::template(VerificationPolicy::proportional(Risk::High)).unwrap();
+    assert_eq!(
+        dag.nodes
+            .iter()
+            .filter(|n| n.role == DagRole::IndependentChecker)
+            .count(),
+        2
+    );
+    assert_eq!(
+        dag.nodes
+            .iter()
+            .filter(|n| n.role == DagRole::Fixer)
+            .count(),
+        3
+    );
+    assert!(
+        dag.nodes
+            .iter()
+            .filter(|n| matches!(
+                n.role,
+                DagRole::DeterministicChecker | DagRole::IndependentChecker
+            ))
+            .all(|n| n.dependencies == vec![dag.maker])
+    );
+    let actors = [Uuid::new_v4(), Uuid::new_v4()];
+    dag.validate_checker_attempts(&actors).unwrap();
+    assert!(
+        dag.validate_checker_attempts(&[actors[0], actors[0]])
+            .is_err()
+    );
+    assert!(
+        dag.validate_checker_attempts(&[dag.maker, actors[0]])
+            .is_err()
+    );
+}
+
+#[test]
+fn policy_rejects_under_verification_and_unbounded_loops() {
+    assert!(
+        VerificationPolicy {
+            risk: Risk::High,
+            deterministic_checks: 1,
+            independent_checkers: 2,
+            max_fixer_rounds: 3
+        }
+        .validate()
+        .is_err()
+    );
+    assert!(
+        VerificationPolicy {
+            risk: Risk::Low,
+            deterministic_checks: 1,
+            independent_checkers: 0,
+            max_fixer_rounds: 11
+        }
+        .validate()
+        .is_err()
+    );
+}
+
+#[test]
+fn final_evidence_preserves_non_pass_outcomes_and_bounds() {
+    let policy = VerificationPolicy::proportional(Risk::Medium);
+    let review = ReviewEvidence {
+        checker_id: Uuid::new_v4(),
+        attempt: 1,
+        status: VerificationStatus::Passed,
+        rationale: "ok".into(),
+    };
+    let final_result = assemble_final(
+        &policy,
+        vec![check(VerificationStatus::TimedOut)],
+        vec![review.clone()],
+        1,
+    )
+    .unwrap();
+    assert_eq!(final_result.status, VerificationStatus::TimedOut);
+    assert!(
+        assemble_final(
+            &policy,
+            vec![check(VerificationStatus::Passed)],
+            vec![review],
+            3
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn all_terminal_check_states_remain_distinct() {
+    let values = [
+        VerificationStatus::Passed,
+        VerificationStatus::Failed,
+        VerificationStatus::Inconclusive,
+        VerificationStatus::Cancelled,
+        VerificationStatus::TimedOut,
+    ];
+    let json = serde_json::to_string(&values).unwrap();
+    let roundtrip: Vec<VerificationStatus> = serde_json::from_str(&json).unwrap();
+    assert_eq!(roundtrip, values);
+}
