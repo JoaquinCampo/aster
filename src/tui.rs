@@ -276,7 +276,14 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
                 model.status = format!("running {id}");
                 match runtime.run_ready().await {
                     Ok(_) => match runtime.store.tasks() {
-                        Ok(tasks) => model.tasks = tasks,
+                        Ok(tasks) => {
+                            model.tasks = tasks;
+                            model.status =
+                                model.tasks.iter().find(|task| task.id == id).map_or_else(
+                                    || "task completed".into(),
+                                    |task| format!("{:?} {id}", task.state),
+                                );
+                        }
                         Err(e) => model.status = format!("error: {e}"),
                     },
                     Err(e) => model.status = format!("error: {e}"),
