@@ -3,6 +3,7 @@ pub mod context;
 pub mod domain;
 pub mod effects;
 pub mod memory;
+pub mod pi_gateway;
 pub mod plugin;
 pub mod provider;
 pub mod routing;
