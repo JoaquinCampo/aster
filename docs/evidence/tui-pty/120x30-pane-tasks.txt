@@ -1,10 +1,10 @@
-─── salty-yak ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+─── dusty-urial ────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Tasks ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│› 3152ff85 Succeeded implement deterministic acceptance evidence · Actions: pause=false resume=false cancel=false     │
-│retry=false                                                                                                           │
+│› 681d5567 Succeeded/Background implement deterministic acceptance evidence · terminal=Some(Completed) · Actions:     │
+│pause=false resume=false cancel=false retry=false                                                                     │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

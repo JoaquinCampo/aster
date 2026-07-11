@@ -344,7 +344,7 @@ fn request_action(model: &mut Model, name: &str, f: impl FnOnce(uuid::Uuid) -> C
         return Cmd::None;
     };
     let legal = match name {
-        "pause" => matches!(task.state, TaskState::Running),
+        "pause" => matches!(task.state, TaskState::Running | TaskState::Queued),
         "resume" => matches!(task.state, TaskState::Paused),
         "cancel" => !task.state.is_terminal() && !matches!(task.state, TaskState::Cancelling),
         "retry" => matches!(task.state, TaskState::Failed | TaskState::TimedOut),
@@ -742,7 +742,7 @@ pub fn view(f: &mut Frame<'_>, model: &Model) {
 fn action_availability(t: &Task) -> String {
     format!(
         "Actions: pause={} resume={} cancel={} retry={}",
-        matches!(t.state, TaskState::Running),
+        matches!(t.state, TaskState::Running | TaskState::Queued),
         matches!(t.state, TaskState::Paused),
         !t.state.is_terminal() && !matches!(t.state, TaskState::Cancelling),
         matches!(t.state, TaskState::Failed | TaskState::TimedOut)
@@ -787,14 +787,14 @@ fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
     } else {
         match m.screen {
         Screen::Conversation => "Conversation [input]\nType a task and press Enter. Runtime events remain non-blocking.".into(),
-        Screen::Tasks => m.tasks.iter().enumerate().map(|(i,t)|format!("{} {:8} {:?} {} · {}",if i==m.selected{"›"}else{" "},&t.id.to_string()[..8],t.state,t.prompt,action_availability(t))).collect::<Vec<_>>().join("\n"),
+        Screen::Tasks => m.tasks.iter().enumerate().map(|(i,t)|format!("{} {:8} {:?}/{:?} {} · terminal={:?} · {}",if i==m.selected{"›"}else{" "},&t.id.to_string()[..8],t.state,t.execution_mode,t.prompt,t.terminal_reason,action_availability(t))).collect::<Vec<_>>().join("\n"),
         Screen::Dag => {
             let edges = m.tasks.iter().map(|t|format!("{} ← {}",&t.id.to_string()[..8],if t.dependencies.is_empty(){"root".into()}else{t.dependencies.iter().map(|x|x.to_string()[..8].to_string()).collect::<Vec<_>>().join(",")})).collect::<Vec<_>>();
             let critical = m.tasks.iter().max_by_key(|t| (t.updated_at-t.created_at).num_milliseconds()).map(|t| format!("{} ({} ms)",&t.id.to_string()[..8],(t.updated_at-t.created_at).num_milliseconds().max(0))).unwrap_or_else(|| "none".into());
             format!("DAG [graph] · duration-weighted critical path endpoint: {critical}\n{}", edges.join("\n"))
         }
         Screen::Routing => selected.map(|t|format!("Route trace [detail]\ndecision: {}\nrole: {}\nmodel: {}\neffort: {}\ncontext tokens: {}\noutput tokens: {}\nlatency budget ms: {}\ncapabilities/permissions: {}\ntools: {}\nisolation: {}\nlifecycle: {}\nverification: {}\nrationale: {}\neffects/escalations/de-escalations/outcomes:\n{}\nPress o to edit all dimensions",t.route.decision_id,t.route.role,t.route.model,t.route.dimensions.effort,t.route.dimensions.context_tokens,t.route.dimensions.output_tokens,t.route.dimensions.max_latency_ms,t.route.dimensions.capabilities.join(", "),t.route.dimensions.tools.join(", "),t.route.dimensions.isolation.join(", "),t.route.dimensions.lifecycle,t.route.dimensions.verification,t.route.rationale,m.observability.audit.iter().filter(|e| e.task_id==t.id && (e.kind.contains("effect") || e.kind.contains("escalat") || e.kind.contains("outcome") || e.kind.contains("route"))).map(|e|format!("{} · {}",e.kind,e.detail)).collect::<Vec<_>>().join("\n"))).unwrap_or("No task selected".into()),
-        Screen::Usage => selected.map(|t|format!("Usage and budgets [meter]\ntokens: {} / {}\nremaining: {}\nattempts: {} / {}\ntimeout: {} ms",t.tokens_used,t.token_budget.map(|x|x.to_string()).unwrap_or("unlimited".into()),t.token_budget.map(|b|b.saturating_sub(t.tokens_used).to_string()).unwrap_or("unlimited".into()),t.attempts,t.retry.max_attempts,t.timeout_ms.map(|x|x.to_string()).unwrap_or("none".into()))).unwrap_or("No usage".into()),
+        Screen::Usage => selected.map(|t|format!("Usage and budgets [meter]\ntokens: {} / {}\nremaining: {}\nattempts: {} / {}\ntimeout: {} ms\nelapsed cumulative: {} ms\ntime remaining: {}",t.tokens_used,t.token_budget.map(|x|x.to_string()).unwrap_or("unlimited".into()),t.token_budget.map(|b|b.saturating_sub(t.tokens_used).to_string()).unwrap_or("unlimited".into()),t.attempts,t.retry.max_attempts,t.timeout_ms.map(|x|x.to_string()).unwrap_or("none".into()),t.elapsed_ms,t.timeout_ms.map(|b|b.saturating_sub(t.elapsed_ms).to_string()).unwrap_or("unlimited".into()))).unwrap_or("No usage".into()),
         Screen::Transcripts => selected.and_then(|t|t.output.clone()).unwrap_or("No transcript yet".into()),
         Screen::Audit => format!("Audit events [log]\n{}", m.observability.audit.iter().rev().map(|e|format!("{} · {} · {}",e.at.format("%H:%M:%S"),e.kind,e.detail)).collect::<Vec<_>>().join("\n")),
         Screen::Approvals => selected.map(|t| {
@@ -923,6 +923,11 @@ mod tests {
     #[test]
     fn illegal_actions_and_override_editor_are_visible() {
         let mut m = Model::new(vec![sample()]);
+        assert!(matches!(
+            update_key(&mut m, KeyCode::Char('p')),
+            Cmd::Pause(_)
+        ));
+        m.tasks[0].state = TaskState::Succeeded;
         assert_eq!(update_key(&mut m, KeyCode::Char('p')), Cmd::None);
         assert!(m.status.contains("pause unavailable"));
         assert_eq!(update_key(&mut m, KeyCode::Char('o')), Cmd::None);

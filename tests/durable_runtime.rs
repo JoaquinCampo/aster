@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
 use aster::{
-    domain::{Operation, OperationState, RetryPolicy, TaskState},
+    domain::{ExecutionMode, Operation, OperationState, RetryPolicy, TaskState, TerminalReason},
     provider::{ExecutionResult, PiAdapter},
     runtime::Runtime,
     store::Store,
@@ -35,6 +35,17 @@ fn runtime() -> (tempfile::TempDir, Runtime<Flaky>) {
     let d = tempfile::tempdir().unwrap();
     let s = Store::open(d.path().join("db")).unwrap();
     (d, Runtime::new(s, Flaky(Arc::new(AtomicUsize::new(0)))))
+}
+
+#[tokio::test]
+async fn foreground_and_background_share_durable_lifecycle() {
+    let (_d, r) = runtime();
+    let queued = r.submit_background("background".into()).unwrap();
+    assert_eq!(queued.execution_mode, ExecutionMode::Background);
+    let done = r.run_foreground("foreground".into()).await.unwrap();
+    assert_eq!(done.execution_mode, ExecutionMode::Foreground);
+    assert_eq!(done.terminal_reason, Some(TerminalReason::ProviderFailed));
+    assert!(r.store.task(done.id).unwrap().is_some());
 }
 
 #[tokio::test]

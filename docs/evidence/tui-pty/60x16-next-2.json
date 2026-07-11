@@ -1,8 +1,8 @@
 {
-  "session_id": "grand-crane",
-  "screen": "┌ ASTER ───────────────────────────────────────────────────┐\n│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│\n└──────────────────────────────────────────────────────────┘\n┌ DAG · compact ───────────────────────────────────────────┐\n│DAG [graph] · duration-weighted critical path endpoint:   │\n│c580ea7f (3442 ms)                                        │\n│3152ff85 ← root                                           │\n│346e20fa ← root                                           │\n│c9079e51 ← root                                           │\n│638769ea ← root                                           │\n│c580ea7f ← root                                           │\n│                                                          │\n└──────────────────────────────────────────────────────────┘\n┌──────────────────────────────────────────────────────────┐\n│>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│\n└──────────────────────────────────────────────────────────┘",
+  "session_id": "keen-stoat",
+  "screen": "┌ ASTER ───────────────────────────────────────────────────┐\n│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│\n└──────────────────────────────────────────────────────────┘\n┌ DAG · compact ───────────────────────────────────────────┐\n│DAG [graph] · duration-weighted critical path endpoint:   │\n│6dd25f10 (3448 ms)                                        │\n│681d5567 ← root                                           │\n│b4705ce8 ← root                                           │\n│1dfd5996 ← root                                           │\n│5b5d84e5 ← root                                           │\n│6dd25f10 ← root                                           │\n│                                                          │\n└──────────────────────────────────────────────────────────┘\n┌──────────────────────────────────────────────────────────┐\n│>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│\n└──────────────────────────────────────────────────────────┘",
   "cursor": {
-    "x": 54,
+    "x": 53,
     "y": 11
   },
   "changed": false,

@@ -1,18 +1,18 @@
-─── grand-crane ────────────────────────────────────────────
+─── keen-stoat ─────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│
 └──────────────────────────────────────────────────────────┘
 ┌ Tasks · compact ─────────────────────────────────────────┐
-│› 3152ff85 Succeeded implement deterministic acceptance   │
-│evidence · Actions: pause=false resume=false cancel=false │
-│retry=false                                               │
-│  346e20fa TimedOut cenario:timeout · Actions: pause=false│
+│› 681d5567 Succeeded/Background implement deterministic   │
+│acceptance evidence · terminal=Some(Completed) · Actions: │
+│pause=false resume=false cancel=false retry=false         │
+│  b4705ce8 TimedOut/Background cenario:timeout ·          │
+│terminal=Some(TimeoutExceeded) · Actions: pause=false     │
 │resume=false cancel=false retry=true                      │
-│  c9079e51 Failed cenario:permission-denied · Actions:    │
-│pause=false resume=false cancel=false retry=true          │
-│  638769ea Cancelled cenario:in-flight-cancellation ·     │
+│  1dfd5996 Failed/Background cenario:permission-denied ·  │
+│terminal=Some(ProviderFailed) · Actions: pause=false      │
 └──────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────┐
 │>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│
 └──────────────────────────────────────────────────────────┘
-─── running | cursor(54,11) | fullscreen:true | title:"" ───
+─── running | cursor(53,11) | fullscreen:true | title:"" ───

@@ -1,4 +1,4 @@
-use crate::domain::Route;
+use crate::domain::{OperationState, Route};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use reqwest::{Client, StatusCode, Url};
@@ -521,6 +521,17 @@ pub struct ExecutionResult {
 #[async_trait]
 pub trait PiAdapter: Send + Sync {
     async fn execute(&self, prompt: &str, route: &Route) -> anyhow::Result<ExecutionResult>;
+    /// A live adapter must opt in before the runtime asks it to prove a lost outcome.
+    fn supports_reconciliation(&self) -> bool {
+        false
+    }
+    async fn reconcile(&self, _operation_id: uuid::Uuid) -> anyhow::Result<Option<OperationState>> {
+        Ok(None)
+    }
+    /// Cooperative in-flight cancellation is optional; safe-boundary cancellation is universal.
+    fn supports_cancellation(&self) -> bool {
+        false
+    }
 }
 
 /// Process boundary for a future Pi child-process protocol; it deliberately

@@ -134,6 +134,28 @@ impl Default for RetryPolicy {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionMode {
+    Foreground,
+    #[default]
+    Background,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalReason {
+    Completed,
+    VerificationFailed,
+    ProviderFailed,
+    DependencyFailed,
+    DependencyCycle,
+    CancelledByUser,
+    TimeoutExceeded,
+    TokenBudgetExceeded,
+    ReconciliationFailed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: Uuid,
@@ -158,6 +180,13 @@ pub struct Task {
     pub tokens_used: u64,
     #[serde(default)]
     pub failure_reason: Option<String>,
+    #[serde(default)]
+    pub execution_mode: ExecutionMode,
+    #[serde(default)]
+    pub terminal_reason: Option<TerminalReason>,
+    /// Cumulative provider wall time across attempts; survives restart.
+    #[serde(default)]
+    pub elapsed_ms: u64,
 }
 
 impl Task {
@@ -179,6 +208,9 @@ impl Task {
             token_budget: None,
             tokens_used: 0,
             failure_reason: None,
+            execution_mode: ExecutionMode::Background,
+            terminal_reason: None,
+            elapsed_ms: 0,
         }
     }
 }

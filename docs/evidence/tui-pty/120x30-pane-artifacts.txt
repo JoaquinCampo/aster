@@ -1,24 +1,24 @@
-─── salty-yak ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+─── dusty-urial ────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Audit ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │Audit events [log]                                                                                                    │
-│21:38:52 · route.outcome ·                                                                                            │
+│21:46:37 · route.outcome ·                                                                                            │
 │{"attempt":1,"decision_id":"v1:implementer:fake-terra:75:86","latency_ms":0,"model":"fake-terra","policy_revision":1,"│
 │role":"implementer","state":"Succeeded","tokens":16,"verified":true}                                                  │
-│21:38:52 · checkpoint.saved · id=719947c7-bc1f-4c82-bccc-76d4ca86dfaf operation=394cd2f8-5209-49e9-89ea-1acb302e188b  │
+│21:46:37 · checkpoint.saved · id=be9cf9d3-88dd-47d3-a59c-20d36bb9b38c operation=b1b156a2-0bf1-4286-adec-726ae80b8acf  │
 │attempt=1 phase=operation-terminal digest=sha256:3280a6098896ddcd5d7117002f2bb1f4ff7c99038e4d4f26486ad399c3be10b6     │
-│21:38:52 · operation.completed · 394cd2f8-5209-49e9-89ea-1acb302e188b: Succeeded                                      │
-│21:38:52 · artifact.persisted · id=680af588-ffa4-443a-b06d-fd437a131dd1 operation=394cd2f8-5209-49e9-89ea-1acb302e188b│
+│21:46:37 · operation.completed · b1b156a2-0bf1-4286-adec-726ae80b8acf: Succeeded                                      │
+│21:46:37 · artifact.persisted · id=1aee5e4d-99b5-43d4-a196-929980ad7a9c operation=b1b156a2-0bf1-4286-adec-726ae80b8acf│
 │attempt=1 name=provider-output.txt digest=sha256:dbfeed491aba391ecf1501c1825ba582c3ac10615fe3f1e8d26c89b83e459d3b     │
 │provenance=provider:fake-terra;decision:v1:implementer:fake-terra:75:86                                               │
-│21:38:52 · operation.started · 394cd2f8-5209-49e9-89ea-1acb302e188b                                                   │
-│21:38:52 · checkpoint.saved · id=8e3cab65-8a45-4cf7-8616-63b0bc255738 operation=394cd2f8-5209-49e9-89ea-1acb302e188b  │
+│21:46:37 · operation.started · b1b156a2-0bf1-4286-adec-726ae80b8acf                                                   │
+│21:46:37 · checkpoint.saved · id=a171899a-3b8d-426a-b5ba-ee42453a33c2 operation=b1b156a2-0bf1-4286-adec-726ae80b8acf  │
 │attempt=1 phase=operation-intent digest=sha256:a205264309e3c1944b2c2a78a375330600db72e94d7145d7e8514141b206d422       │
-│21:38:52 · operation.intent · 394cd2f8-5209-49e9-89ea-1acb302e188b                                                    │
-│21:38:52 · task.queued · Task durably queued                                                                          │
-│21:38:52 · route.selected ·                                                                                           │
+│21:46:37 · operation.intent · b1b156a2-0bf1-4286-adec-726ae80b8acf                                                    │
+│21:46:37 · task.queued · Task durably queued                                                                          │
+│21:46:37 · route.selected ·                                                                                           │
 │{"budgets":{"timeout_ms":null,"token_budget":null},"decision_id":"v1:implementer:fake-terra:75:86","overrides":{"capab│
 │ilities":null,"context_tokens":null,"effort":null,"isolation":null,"lifecycle":null,"max_cost_micros":null,"max_latenc│
 │y_ms":null,"model":null,"output_tokens":null,"role":null,"tools":null,"verification":null},"policy_revision":1,"route"│

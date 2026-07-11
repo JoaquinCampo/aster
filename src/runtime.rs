@@ -1,7 +1,7 @@
 use crate::{
     domain::{
-        Artifact, AuditEvent, Checkpoint, Operation, OperationState, RetryPolicy, Route, Task,
-        TaskState,
+        Artifact, AuditEvent, Checkpoint, ExecutionMode, Operation, OperationState, RetryPolicy,
+        Route, Task, TaskState, TerminalReason,
     },
     hooks::{HookTrigger, LifecycleHooks},
     provider::PiAdapter,
@@ -85,6 +85,21 @@ impl<A: PiAdapter> Runtime<A> {
             None,
             None,
         )
+    }
+    /// Queue durable background work without waiting for execution.
+    pub fn submit_background(&self, prompt: String) -> Result<Task> {
+        self.submit(prompt)
+    }
+    /// Execute foreground work through the same durable scheduler and lifecycle.
+    pub async fn run_foreground(&self, prompt: String) -> Result<Task> {
+        let mut task = self.submit(prompt)?;
+        task.execution_mode = ExecutionMode::Foreground;
+        self.store.save_task_with_event(
+            &task,
+            "task.foreground",
+            "foreground caller waiting on durable execution",
+        )?;
+        self.run(task).await
     }
     /// Selects and durably records a route with explicit, independently applied user overrides.
     pub fn submit_with_overrides(
@@ -353,7 +368,19 @@ impl<A: PiAdapter> Runtime<A> {
             self.store.save_operation(&op)?;
             self.event(&task, "operation.started", op.id.to_string())?;
             self.hook(&task, HookTrigger::BeforeTool, "provider_execute")?;
-            let result = match task.timeout_ms {
+            let remaining_ms = task
+                .timeout_ms
+                .map(|budget| budget.saturating_sub(task.elapsed_ms));
+            if remaining_ms == Some(0) {
+                task.state = TaskState::TimedOut;
+                task.failure_reason = Some("cumulative execution timeout exceeded".into());
+                task.terminal_reason = Some(TerminalReason::TimeoutExceeded);
+                op.state = OperationState::TimedOut;
+                op.completed_at = Some(Utc::now());
+                self.store.finish_operation(&task, &op)?;
+                return Ok(task);
+            }
+            let result = match remaining_ms {
                 Some(ms) => match tokio::time::timeout(
                     Duration::from_millis(ms),
                     self.adapter.execute(&task.prompt, &task.route),
@@ -370,16 +397,48 @@ impl<A: PiAdapter> Runtime<A> {
                     .map(Some),
             };
             self.hook(&task, HookTrigger::AfterTool, "provider_execute")?;
+            // Lifecycle requests made while the adapter was running take effect at this
+            // durable operation boundary; no subsequent attempt is started.
+            match self.store.task(task.id)?.map(|t| t.state) {
+                Some(TaskState::Pausing) => {
+                    task.state = TaskState::Paused;
+                    task.failure_reason = None;
+                    op.state = OperationState::Cancelled;
+                }
+                Some(TaskState::Cancelling) => {
+                    task.state = TaskState::Cancelled;
+                    task.failure_reason = Some("cancelled by user at safe boundary".into());
+                    task.terminal_reason = Some(TerminalReason::CancelledByUser);
+                    op.state = OperationState::Cancelled;
+                }
+                _ => {}
+            }
+            if matches!(task.state, TaskState::Paused | TaskState::Cancelled) {
+                op.completed_at = Some(Utc::now());
+                task.updated_at = Utc::now();
+                task.elapsed_ms = task.elapsed_ms.saturating_add(
+                    (task.updated_at - op.started_at).num_milliseconds().max(0) as u64,
+                );
+                self.store.finish_operation(&task, &op)?;
+                self.event(
+                    &task,
+                    "task.safe_boundary",
+                    format!("state={:?}", task.state),
+                )?;
+                return Ok(task);
+            }
             match result {
                 Ok(None) => {
                     task.state = TaskState::TimedOut;
-                    task.failure_reason = Some("execution timeout exceeded".into());
+                    task.failure_reason = Some("cumulative execution timeout exceeded".into());
+                    task.terminal_reason = Some(TerminalReason::TimeoutExceeded);
                     op.state = OperationState::TimedOut;
                 }
                 Err(e) => {
                     task.state = TaskState::Failed;
                     task.failure_reason = Some(e.to_string());
                     task.verification = Some(format!("FAIL: {e}"));
+                    task.terminal_reason = Some(TerminalReason::ProviderFailed);
                     op.state = OperationState::Failed;
                 }
                 Ok(Some(r)) => {
@@ -388,22 +447,28 @@ impl<A: PiAdapter> Runtime<A> {
                     self.persist_output_artifact(&task, &op, &r.output)?;
                     if task.token_budget.is_some_and(|b| task.tokens_used > b) {
                         task.state = TaskState::Failed;
-                        task.failure_reason = Some("token budget exceeded".into());
+                        task.failure_reason = Some("cumulative token budget exceeded".into());
+                        task.terminal_reason = Some(TerminalReason::TokenBudgetExceeded);
                         op.state = OperationState::Failed;
                     } else if r.output.trim().is_empty() {
                         task.state = TaskState::Failed;
                         task.failure_reason = Some("empty output failed verification".into());
                         task.verification = Some("FAIL: output is empty".into());
+                        task.terminal_reason = Some(TerminalReason::VerificationFailed);
                         op.state = OperationState::Failed;
                     } else {
                         task.state = TaskState::Succeeded;
                         task.verification = Some("PASS: output is non-empty".into());
+                        task.terminal_reason = Some(TerminalReason::Completed);
                         op.state = OperationState::Succeeded;
                     }
                 }
             }
             op.completed_at = Some(Utc::now());
             task.updated_at = Utc::now();
+            task.elapsed_ms = task
+                .elapsed_ms
+                .saturating_add((task.updated_at - op.started_at).num_milliseconds().max(0) as u64);
             if matches!(task.state, TaskState::Failed | TaskState::TimedOut) {
                 self.hook(&task, HookTrigger::OnFailure, "attempt_terminal")?;
             }
@@ -497,6 +562,7 @@ impl<A: PiAdapter> Runtime<A> {
                     for mut t in queued {
                         t.state = TaskState::Failed;
                         t.failure_reason = Some("dependency cycle".into());
+                        t.terminal_reason = Some(TerminalReason::DependencyCycle);
                         self.store.save_task_with_event(
                             &t,
                             "task.dependency_cycle",
@@ -524,6 +590,7 @@ impl<A: PiAdapter> Runtime<A> {
             }) {
                 t.state = TaskState::Failed;
                 t.failure_reason = Some("dependency cannot succeed".into());
+                t.terminal_reason = Some(TerminalReason::DependencyFailed);
                 self.store.save_task_with_event(
                     &t,
                     "task.dependency_failed",
@@ -535,13 +602,28 @@ impl<A: PiAdapter> Runtime<A> {
         Ok(())
     }
     pub fn pause(&mut self, id: Uuid) -> Result<Task> {
-        self.store.transition(
-            id,
-            &[TaskState::Queued],
-            TaskState::Paused,
-            "task.paused",
-            "no new operation will start",
-        )
+        let state = self
+            .store
+            .task(id)?
+            .ok_or_else(|| anyhow::anyhow!("task not found"))?
+            .state;
+        if state == TaskState::Running {
+            self.store.transition(
+                id,
+                &[TaskState::Running],
+                TaskState::Pausing,
+                "task.pause_requested",
+                "running operation will stop at safe boundary",
+            )
+        } else {
+            self.store.transition(
+                id,
+                &[TaskState::Queued],
+                TaskState::Paused,
+                "task.paused",
+                "no new operation will start",
+            )
+        }
     }
     pub fn resume(&mut self, id: Uuid) -> Result<Task> {
         self.store.transition(
@@ -553,17 +635,35 @@ impl<A: PiAdapter> Runtime<A> {
         )
     }
     pub fn cancel(&mut self, id: Uuid) -> Result<Task> {
-        self.store.transition(
-            id,
-            &[
-                TaskState::Queued,
-                TaskState::Paused,
-                TaskState::OutcomeUnknown,
-            ],
-            TaskState::Cancelled,
-            "task.cancelled",
-            "cancelled at safe boundary",
-        )
+        let state = self
+            .store
+            .task(id)?
+            .ok_or_else(|| anyhow::anyhow!("task not found"))?
+            .state;
+        if matches!(state, TaskState::Running | TaskState::Pausing) {
+            self.store.transition(
+                id,
+                &[TaskState::Running, TaskState::Pausing],
+                TaskState::Cancelling,
+                "task.cancel_requested",
+                "running operation will stop at safe boundary",
+            )
+        } else {
+            let mut task = self.store.transition(
+                id,
+                &[
+                    TaskState::Queued,
+                    TaskState::Paused,
+                    TaskState::OutcomeUnknown,
+                ],
+                TaskState::Cancelled,
+                "task.cancelled",
+                "cancelled at safe boundary",
+            )?;
+            task.terminal_reason = Some(TerminalReason::CancelledByUser);
+            self.store.save_task(&task)?;
+            Ok(task)
+        }
     }
     pub fn retry(&mut self, id: Uuid) -> Result<Task> {
         self.store.transition(
@@ -625,6 +725,32 @@ impl<A: PiAdapter> Runtime<A> {
                 OperationState::Failed
             },
         )
+    }
+    /// Ask a capable live adapter to reconcile every unknown operation. Unknown remains
+    /// unknown when the provider cannot prove an outcome; it is never guessed or replayed.
+    pub async fn reconcile_unknown(&mut self) -> Result<usize> {
+        if !self.adapter.supports_reconciliation() {
+            bail!("adapter does not support outcome reconciliation")
+        }
+        let mut reconciled = 0;
+        let tasks = self.store.tasks()?;
+        for task in tasks
+            .into_iter()
+            .filter(|t| t.state == TaskState::OutcomeUnknown)
+        {
+            for op in self
+                .store
+                .operations_for(task.id)?
+                .into_iter()
+                .filter(|o| o.state == OperationState::OutcomeUnknown)
+            {
+                if let Some(outcome) = self.adapter.reconcile(op.id).await? {
+                    self.reconcile_operation(task.id, op.id, outcome)?;
+                    reconciled += 1;
+                }
+            }
+        }
+        Ok(reconciled)
     }
     pub fn recover(&mut self) -> Result<usize> {
         self.store.recover()
