@@ -1,8 +1,8 @@
 use aster::{
     domain::Task,
     provider::{
-        FakePiAdapter, OpenAiResponsesProvider, PiAdapter, Provider, ProviderRequest,
-        ReasoningEffort,
+        DenyNetwork, FakePiAdapter, NetworkAuthorizer, NetworkDisclosure, OpenAiResponsesProvider,
+        PiAdapter, Provider, ProviderError, ProviderRequest, ReasoningEffort,
     },
     routing::Router,
     store::Store,
@@ -10,6 +10,13 @@ use aster::{
 use futures_util::StreamExt;
 use reqwest::Url;
 use std::{net::TcpListener, time::Duration};
+
+struct AllowNetwork;
+impl NetworkAuthorizer for AllowNetwork {
+    fn authorize(&self, _: &NetworkDisclosure) -> Result<(), ProviderError> {
+        Ok(())
+    }
+}
 
 #[tokio::test]
 async fn routine_harness_operations_make_no_network_connection() {
@@ -31,6 +38,35 @@ async fn routine_harness_operations_make_no_network_connection() {
         deny.accept().is_err(),
         "routine local operation opened a socket"
     );
+}
+
+#[tokio::test]
+async fn denied_provider_request_never_connects_to_listener() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let endpoint = Url::parse(&format!(
+        "http://{}/v1/responses",
+        listener.local_addr().unwrap()
+    ))
+    .unwrap();
+    let provider = OpenAiResponsesProvider::new(endpoint, None);
+
+    let result = provider
+        .stream(
+            ProviderRequest {
+                model: "fixture-model".into(),
+                prompt: "must not leave process".into(),
+                effort: ReasoningEffort::Low,
+            },
+            &DenyNetwork,
+        )
+        .await;
+
+    assert!(
+        matches!(result, Err(ProviderError::Transport(message)) if message.contains("authorization denied"))
+    );
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    assert!(listener.accept().is_err(), "denied request opened a socket");
 }
 
 #[tokio::test]
@@ -82,11 +118,14 @@ async fn configured_provider_connects_only_to_disclosed_destination() {
     );
 
     let mut stream = provider
-        .stream(ProviderRequest {
-            model: "fixture-model".into(),
-            prompt: "explicit task context".into(),
-            effort: ReasoningEffort::Low,
-        })
+        .stream(
+            ProviderRequest {
+                model: "fixture-model".into(),
+                prompt: "explicit task context".into(),
+                effort: ReasoningEffort::Low,
+            },
+            &AllowNetwork,
+        )
         .await
         .unwrap();
     while stream.next().await.is_some() {}

@@ -1,7 +1,8 @@
 use aster::provider::{
-    AuthStatus, CodexBridgeProvider, DeterministicFakeProvider, OpenAiResponsesProvider,
-    ProbeStatus, Provider, ProviderCapabilities, ProviderError, ProviderEvent, ProviderRegistry,
-    ProviderRequest, ReasoningEffort, Support, Usage, XaiProvider, builtin_statuses,
+    AuthStatus, CodexBridgeProvider, DeterministicFakeProvider, NetworkAuthorizer,
+    NetworkDisclosure, OpenAiResponsesProvider, ProbeStatus, Provider, ProviderCapabilities,
+    ProviderError, ProviderEvent, ProviderRegistry, ProviderRequest, ReasoningEffort, Support,
+    Usage, XaiProvider, builtin_statuses,
 };
 use axum::{
     Router,
@@ -15,6 +16,13 @@ use futures_util::StreamExt;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::net::TcpListener;
+
+struct AllowNetwork;
+impl NetworkAuthorizer for AllowNetwork {
+    fn authorize(&self, _: &NetworkDisclosure) -> Result<(), ProviderError> {
+        Ok(())
+    }
+}
 
 async fn server(app: Router) -> reqwest::Url {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -50,7 +58,10 @@ async fn parses_fragment_safe_response_events_and_usage() {
         None,
     );
     let events: Vec<_> = provider
-        .stream(request("vendor-model-1", ReasoningEffort::High))
+        .stream(
+            request("vendor-model-1", ReasoningEffort::High),
+            &AllowNetwork,
+        )
         .await
         .unwrap()
         .collect::<Vec<_>>()
@@ -88,7 +99,10 @@ async fn preserves_structured_http_errors() {
         None,
     );
     let e = match p
-        .stream(request("vendor-model-1", ReasoningEffort::Low))
+        .stream(
+            request("vendor-model-1", ReasoningEffort::Low),
+            &AllowNetwork,
+        )
         .await
     {
         Err(error) => error,
@@ -109,7 +123,10 @@ async fn preserves_streamed_errors() {
         None,
     );
     let e = p
-        .stream(request("vendor-model-1", ReasoningEffort::Low))
+        .stream(
+            request("vendor-model-1", ReasoningEffort::Low),
+            &AllowNetwork,
+        )
         .await
         .unwrap()
         .next()
@@ -125,13 +142,13 @@ async fn adapters_enforce_canonical_ids_and_fake_is_deterministic() {
     let codex = CodexBridgeProvider::at(endpoint.clone());
     assert!(
         codex
-            .stream(request("terra", ReasoningEffort::Medium))
+            .stream(request("terra", ReasoningEffort::Medium), &AllowNetwork)
             .await
             .is_err()
     );
     let xai = XaiProvider::new(endpoint, "not-a-real-secret".into());
     assert!(
-        xai.stream(request("short", ReasoningEffort::Medium))
+        xai.stream(request("short", ReasoningEffort::Medium), &AllowNetwork)
             .await
             .is_err()
     );
@@ -142,7 +159,10 @@ async fn adapters_enforce_canonical_ids_and_fake_is_deterministic() {
     );
     let fake = DeterministicFakeProvider::new(vec![ProviderEvent::OutputDelta("fixed".into())]);
     let event = fake
-        .stream(request("fake-model-1", ReasoningEffort::None))
+        .stream(
+            request("fake-model-1", ReasoningEffort::None),
+            &AllowNetwork,
+        )
         .await
         .unwrap()
         .next()
@@ -167,7 +187,10 @@ async fn request_uses_normalized_effort_and_never_requires_bridge_auth() {
     let p =
         CodexBridgeProvider::at(server(Router::new().route("/v1/responses", post(inspect))).await);
     let _: Vec<_> = p
-        .stream(request("gpt-5.6-sol", ReasoningEffort::XHigh))
+        .stream(
+            request("gpt-5.6-sol", ReasoningEffort::XHigh),
+            &AllowNetwork,
+        )
         .await
         .unwrap()
         .collect()

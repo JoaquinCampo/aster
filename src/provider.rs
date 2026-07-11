@@ -119,9 +119,59 @@ impl NetworkDisclosure {
     }
 }
 
+pub trait NetworkAuthorizer: Send + Sync {
+    fn authorize(&self, disclosure: &NetworkDisclosure) -> Result<(), ProviderError>;
+}
+
+/// Explicit fail-closed authorizer for callers that have no network grant.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct DenyNetwork;
+
+impl NetworkAuthorizer for DenyNetwork {
+    fn authorize(&self, _: &NetworkDisclosure) -> Result<(), ProviderError> {
+        Err(ProviderError::Transport(
+            "network authorization denied".into(),
+        ))
+    }
+}
+
+pub struct EffectBrokerNetworkAuthorizer<'a, A: crate::effects::EffectAdapter> {
+    grant: &'a crate::effects::ScopedGrant,
+    _adapter: std::marker::PhantomData<A>,
+}
+
+impl<'a, A: crate::effects::EffectAdapter> EffectBrokerNetworkAuthorizer<'a, A> {
+    pub fn new(
+        _: &crate::effects::EffectBroker<'_, A>,
+        grant: &'a crate::effects::ScopedGrant,
+    ) -> Self {
+        Self {
+            grant,
+            _adapter: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<A: crate::effects::EffectAdapter> NetworkAuthorizer for EffectBrokerNetworkAuthorizer<'_, A> {
+    fn authorize(&self, disclosure: &NetworkDisclosure) -> Result<(), ProviderError> {
+        crate::effects::Policy::evaluate(
+            self.grant,
+            &crate::effects::EffectRequest::Network {
+                destination: disclosure.destination.clone(),
+                payload: Vec::new(),
+            },
+        )
+        .map_err(|error| ProviderError::Transport(format!("network authorization denied: {error}")))
+    }
+}
+
 #[async_trait]
 pub trait Provider: Send + Sync {
-    async fn stream(&self, request: ProviderRequest) -> Result<EventStream, ProviderError>;
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+        authorizer: &dyn NetworkAuthorizer,
+    ) -> Result<EventStream, ProviderError>;
     fn network_disclosure(&self) -> Option<NetworkDisclosure> {
         None
     }
@@ -383,7 +433,11 @@ impl OpenAiResponsesProvider {
 
 #[async_trait]
 impl Provider for OpenAiResponsesProvider {
-    async fn stream(&self, request: ProviderRequest) -> Result<EventStream, ProviderError> {
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+        authorizer: &dyn NetworkAuthorizer,
+    ) -> Result<EventStream, ProviderError> {
         if request.model.trim().is_empty() || !request.model.contains('-') {
             return Err(ProviderError::Configuration(
                 "model must be a canonical full model ID".into(),
@@ -398,6 +452,10 @@ impl Provider for OpenAiResponsesProvider {
         if let Some(auth) = &self.authorization {
             builder = builder.bearer_auth(auth);
         }
+        let disclosure = self
+            .network_disclosure()
+            .expect("OpenAI Responses providers always disclose their destination");
+        authorizer.authorize(&disclosure)?;
         let response = builder
             .send()
             .await
@@ -527,7 +585,11 @@ impl CodexBridgeProvider {
 }
 #[async_trait]
 impl Provider for CodexBridgeProvider {
-    async fn stream(&self, r: ProviderRequest) -> Result<EventStream, ProviderError> {
+    async fn stream(
+        &self,
+        r: ProviderRequest,
+        authorizer: &dyn NetworkAuthorizer,
+    ) -> Result<EventStream, ProviderError> {
         if !matches!(
             r.model.as_str(),
             "gpt-5.6-luna" | "gpt-5.6-terra" | "gpt-5.6-sol"
@@ -536,7 +598,7 @@ impl Provider for CodexBridgeProvider {
                 "unsupported Codex bridge model ID".into(),
             ));
         }
-        self.0.stream(r).await
+        self.0.stream(r, authorizer).await
     }
     fn network_disclosure(&self) -> Option<NetworkDisclosure> {
         self.0.network_disclosure()
@@ -552,13 +614,17 @@ impl XaiProvider {
 }
 #[async_trait]
 impl Provider for XaiProvider {
-    async fn stream(&self, r: ProviderRequest) -> Result<EventStream, ProviderError> {
+    async fn stream(
+        &self,
+        r: ProviderRequest,
+        authorizer: &dyn NetworkAuthorizer,
+    ) -> Result<EventStream, ProviderError> {
         if !r.model.starts_with("grok-") {
             return Err(ProviderError::Configuration(
                 "xAI model must use its full grok-* ID".into(),
             ));
         }
-        self.0.stream(r).await
+        self.0.stream(r, authorizer).await
     }
     fn network_disclosure(&self) -> Option<NetworkDisclosure> {
         self.0.network_disclosure()
@@ -634,7 +700,11 @@ impl DeterministicFakeProvider {
 }
 #[async_trait]
 impl Provider for DeterministicFakeProvider {
-    async fn stream(&self, _: ProviderRequest) -> Result<EventStream, ProviderError> {
+    async fn stream(
+        &self,
+        _: ProviderRequest,
+        _: &dyn NetworkAuthorizer,
+    ) -> Result<EventStream, ProviderError> {
         Ok(Box::pin(tokio_stream::iter(
             self.events.clone().into_iter().map(Ok),
         )))
