@@ -1,0 +1,21 @@
+id = "fixture.echo"
+version = "1.0.0"
+executable = "echo.py"
+timeout_ms = 5000
+capabilities = ["workspace.read"]
+skill = "SKILL.md"
+rules = ["rule.txt"]
+
+[protocol]
+name = "aster-plugin"
+min_version = 1
+max_version = 1
+
+[[mcp_endpoints]]
+name = "fixture"
+description = "Fixture endpoint contract"
+
+[[tools]]
+name = "fixture.echo"
+description = "Echo input"
+input_schema = { type = "object" }
