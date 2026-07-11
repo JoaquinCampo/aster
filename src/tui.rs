@@ -4,7 +4,7 @@ use crate::{
     domain::{AuditEvent, Task, TaskState},
     memory::MemoryStore,
     plugin,
-    provider::FakePiAdapter,
+    provider::{FakePiAdapter, builtin_statuses},
     routing::Router,
     runtime::Runtime,
     store::Store,
@@ -441,14 +441,29 @@ fn refresh_observability(model: &mut Model, store: &Store, db_path: &Path) {
                 .collect()
         })
         .unwrap_or_else(|e| vec![format!("plugin discovery error: {e}")]);
-    model.observability.diagnostics = vec![
-        "provider: deterministic-fake · ready · local/no network".into(),
-        format!(
-            "plugin registry: {} discovered",
-            model.observability.plugins.len()
-        ),
-        "MCP: JSON-RPC client/server available · no configured live transport".into(),
-    ];
+    model.observability.diagnostics = builtin_statuses(None, None, false)
+        .into_iter()
+        .map(|provider| {
+            format!(
+                "{} · {:?} · auth={:?} · models={} · reasoning={:?} tools={:?} stream={:?} usage={:?} errors={:?} cancel={:?} · {}",
+                provider.display_name,
+                provider.probe_status,
+                provider.auth_status,
+                if provider.models.is_empty() { "deployment-defined".into() } else { provider.models.join(",") },
+                provider.capabilities.reasoning,
+                provider.capabilities.tools,
+                provider.capabilities.streaming,
+                provider.capabilities.usage,
+                provider.capabilities.structured_errors,
+                provider.capabilities.cancellation,
+                provider.diagnostic,
+            )
+        })
+        .chain([
+            format!("plugin registry: {} discovered", model.observability.plugins.len()),
+            "MCP: JSON-RPC client/server available · no configured live transport".into(),
+        ])
+        .collect();
 }
 
 async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cmd: Cmd) {

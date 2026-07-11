@@ -4,7 +4,7 @@ use futures_util::StreamExt;
 use reqwest::{Client, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{fmt, pin::Pin};
+use std::{collections::BTreeMap, fmt, pin::Pin, sync::Arc};
 use thiserror::Error;
 use tokio_stream::Stream;
 
@@ -92,6 +92,229 @@ pub struct ProviderRequest {
 #[async_trait]
 pub trait Provider: Send + Sync {
     async fn stream(&self, request: ProviderRequest) -> Result<EventStream, ProviderError>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Support {
+    Supported,
+    Unsupported,
+    ModelDependent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderCapabilities {
+    pub reasoning: Support,
+    pub tools: Support,
+    pub streaming: Support,
+    pub usage: Support,
+    pub structured_errors: Support,
+    pub cancellation: Support,
+}
+
+impl ProviderCapabilities {
+    pub const RESPONSES: Self = Self {
+        reasoning: Support::ModelDependent,
+        tools: Support::Supported,
+        streaming: Support::Supported,
+        usage: Support::Supported,
+        structured_errors: Support::Supported,
+        cancellation: Support::Supported,
+    };
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthStatus {
+    NotRequired,
+    ReferenceAvailable,
+    ReferenceMissing,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProbeStatus {
+    Fixture,
+    Unchecked,
+    Healthy,
+    Unhealthy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderStatus {
+    pub id: String,
+    pub display_name: String,
+    pub adapter: String,
+    pub models: Vec<String>,
+    pub capabilities: ProviderCapabilities,
+    pub auth_reference: Option<String>,
+    pub auth_status: AuthStatus,
+    pub probe_status: ProbeStatus,
+    pub diagnostic: String,
+}
+
+impl ProviderStatus {
+    pub fn negotiate(
+        &self,
+        model: &str,
+        effort: ReasoningEffort,
+        needs_tools: bool,
+    ) -> Result<(), ProviderError> {
+        if !self.models.is_empty()
+            && !self.models.iter().any(|advertised| {
+                advertised == model
+                    || (advertised.ends_with('*')
+                        && model.starts_with(advertised.trim_end_matches('*')))
+            })
+        {
+            return Err(ProviderError::Configuration(format!(
+                "provider {} does not advertise model {model}",
+                self.id
+            )));
+        }
+        if effort != ReasoningEffort::None && self.capabilities.reasoning == Support::Unsupported {
+            return Err(ProviderError::Configuration(format!(
+                "provider {} does not support reasoning",
+                self.id
+            )));
+        }
+        if needs_tools && self.capabilities.tools == Support::Unsupported {
+            return Err(ProviderError::Configuration(format!(
+                "provider {} does not support tools",
+                self.id
+            )));
+        }
+        if self.auth_status == AuthStatus::ReferenceMissing {
+            return Err(ProviderError::Configuration(format!(
+                "provider {} auth reference is unavailable",
+                self.id
+            )));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct ProviderRegistry {
+    providers: BTreeMap<String, (Arc<dyn Provider>, ProviderStatus)>,
+}
+
+impl ProviderRegistry {
+    pub fn register(
+        &mut self,
+        status: ProviderStatus,
+        provider: Arc<dyn Provider>,
+    ) -> Result<(), ProviderError> {
+        if status.id.trim().is_empty() {
+            return Err(ProviderError::Configuration("provider ID is empty".into()));
+        }
+        if self
+            .providers
+            .insert(status.id.clone(), (provider, status.clone()))
+            .is_some()
+        {
+            return Err(ProviderError::Configuration(format!(
+                "duplicate provider ID {}",
+                status.id
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn statuses(&self) -> Vec<ProviderStatus> {
+        self.providers
+            .values()
+            .map(|(_, status)| status.clone())
+            .collect()
+    }
+
+    pub fn resolve(
+        &self,
+        id: &str,
+        model: &str,
+        effort: ReasoningEffort,
+        needs_tools: bool,
+    ) -> Result<Arc<dyn Provider>, ProviderError> {
+        let (provider, status) = self
+            .providers
+            .get(id)
+            .ok_or_else(|| ProviderError::Configuration(format!("unknown provider {id}")))?;
+        status.negotiate(model, effort, needs_tools)?;
+        Ok(provider.clone())
+    }
+}
+
+pub fn builtin_statuses(
+    xai_auth_ref: Option<&str>,
+    generic_auth_ref: Option<&str>,
+    live: bool,
+) -> Vec<ProviderStatus> {
+    let probe_status = if live {
+        ProbeStatus::Unchecked
+    } else {
+        ProbeStatus::Fixture
+    };
+    let auth = |reference: Option<&str>| {
+        if reference.is_some() {
+            AuthStatus::ReferenceAvailable
+        } else {
+            AuthStatus::ReferenceMissing
+        }
+    };
+    vec![
+        ProviderStatus {
+            id: "codex".into(),
+            display_name: "Codex bridge".into(),
+            adapter: "codex_bridge".into(),
+            models: vec![
+                "gpt-5.6-luna".into(),
+                "gpt-5.6-terra".into(),
+                "gpt-5.6-sol".into(),
+            ],
+            capabilities: ProviderCapabilities::RESPONSES,
+            auth_reference: Some("CODEX_AUTH_PATH or ~/.codex/auth.json (bridge-owned)".into()),
+            auth_status: AuthStatus::NotRequired,
+            probe_status: probe_status.clone(),
+            diagnostic: if live {
+                "not probed; bridge health and Codex session are external"
+            } else {
+                "deterministic fixture; no live bridge or credential used"
+            }
+            .into(),
+        },
+        ProviderStatus {
+            id: "xai".into(),
+            display_name: "xAI / Grok".into(),
+            adapter: "xai_responses".into(),
+            models: vec!["grok-*".into()],
+            capabilities: ProviderCapabilities::RESPONSES,
+            auth_reference: xai_auth_ref.map(str::to_owned),
+            auth_status: auth(xai_auth_ref),
+            probe_status: probe_status.clone(),
+            diagnostic: if live {
+                "not probed; status does not claim credential validity"
+            } else {
+                "deterministic fixture; no live xAI request"
+            }
+            .into(),
+        },
+        ProviderStatus {
+            id: "openai-compatible".into(),
+            display_name: "OpenAI-compatible".into(),
+            adapter: "openai_responses".into(),
+            models: vec![],
+            capabilities: ProviderCapabilities::RESPONSES,
+            auth_reference: generic_auth_ref.map(str::to_owned),
+            auth_status: auth(generic_auth_ref),
+            probe_status,
+            diagnostic: if live {
+                "not probed; endpoint semantics vary by deployment"
+            } else {
+                "deterministic fixture; no live provider request"
+            }
+            .into(),
+        },
+    ]
 }
 
 /// Generic OpenAI Responses API adapter. Dropping the returned stream drops the

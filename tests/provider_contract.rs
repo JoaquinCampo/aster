@@ -1,6 +1,7 @@
 use aster::provider::{
-    CodexBridgeProvider, DeterministicFakeProvider, OpenAiResponsesProvider, Provider,
-    ProviderError, ProviderEvent, ProviderRequest, ReasoningEffort, Usage, XaiProvider,
+    AuthStatus, CodexBridgeProvider, DeterministicFakeProvider, OpenAiResponsesProvider,
+    ProbeStatus, Provider, ProviderCapabilities, ProviderError, ProviderEvent, ProviderRegistry,
+    ProviderRequest, ReasoningEffort, Support, Usage, XaiProvider, builtin_statuses,
 };
 use axum::{
     Router,
@@ -12,6 +13,7 @@ use axum::{
 };
 use futures_util::StreamExt;
 use serde_json::{Value, json};
+use std::sync::Arc;
 use tokio::net::TcpListener;
 
 async fn server(app: Router) -> reqwest::Url {
@@ -170,4 +172,96 @@ async fn request_uses_normalized_effort_and_never_requires_bridge_auth() {
         .unwrap()
         .collect()
         .await;
+}
+
+#[test]
+fn builtin_registry_status_is_deterministic_and_honest() {
+    let fixture = builtin_statuses(Some("env:XAI_API_KEY"), None, false);
+    assert_eq!(fixture.len(), 3);
+    assert!(
+        fixture
+            .iter()
+            .all(|status| status.probe_status == ProbeStatus::Fixture)
+    );
+    assert!(
+        fixture
+            .iter()
+            .all(|status| status.capabilities.streaming == Support::Supported)
+    );
+    assert!(
+        fixture
+            .iter()
+            .all(|status| status.capabilities.usage == Support::Supported)
+    );
+    assert!(
+        fixture
+            .iter()
+            .all(|status| status.capabilities.structured_errors == Support::Supported)
+    );
+    assert!(
+        fixture
+            .iter()
+            .all(|status| status.capabilities.cancellation == Support::Supported)
+    );
+    assert_eq!(fixture[0].auth_status, AuthStatus::NotRequired);
+    assert_eq!(fixture[1].auth_status, AuthStatus::ReferenceAvailable);
+    assert_eq!(fixture[2].auth_status, AuthStatus::ReferenceMissing);
+    assert!(
+        fixture
+            .iter()
+            .all(|status| status.diagnostic.contains("fixture"))
+    );
+
+    let live = builtin_statuses(None, Some("keychain:vendor"), true);
+    assert!(
+        live.iter()
+            .all(|status| status.probe_status == ProbeStatus::Unchecked)
+    );
+    assert!(
+        live.iter()
+            .all(|status| status.diagnostic.contains("not probed"))
+    );
+}
+
+#[test]
+fn registry_negotiates_models_capabilities_auth_and_duplicates() {
+    let fake = Arc::new(DeterministicFakeProvider::new(vec![]));
+    let mut registry = ProviderRegistry::default();
+    let mut status =
+        builtin_statuses(Some("env:XAI_API_KEY"), Some("env:VENDOR_KEY"), false).remove(1);
+    registry.register(status.clone(), fake.clone()).unwrap();
+    assert!(
+        registry
+            .resolve("xai", "grok-4", ReasoningEffort::High, true)
+            .is_ok()
+    );
+    assert!(
+        registry
+            .resolve("xai", "gpt-5", ReasoningEffort::High, true)
+            .is_err()
+    );
+    assert!(registry.register(status.clone(), fake.clone()).is_err());
+
+    status.id = "limited".into();
+    status.models = vec!["fixed-model".into()];
+    status.capabilities = ProviderCapabilities {
+        reasoning: Support::Unsupported,
+        tools: Support::Unsupported,
+        streaming: Support::Supported,
+        usage: Support::Supported,
+        structured_errors: Support::Supported,
+        cancellation: Support::Supported,
+    };
+    registry.register(status, fake).unwrap();
+    assert!(
+        registry
+            .resolve("limited", "fixed-model", ReasoningEffort::Low, false)
+            .is_err()
+    );
+    assert!(
+        registry
+            .resolve("limited", "fixed-model", ReasoningEffort::None, true)
+            .is_err()
+    );
+    assert_eq!(registry.statuses().len(), 2);
 }
