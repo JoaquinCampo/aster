@@ -148,3 +148,68 @@ fn audit_is_append_only_and_duplicate_ids_fail() {
     assert!(r.store.append(&e).is_err());
     assert_eq!(r.store.audit_for(t.id).unwrap().len(), 2);
 }
+
+#[tokio::test]
+async fn scheduler_fails_cycles_and_impossible_dependencies() {
+    let (_d, r) = runtime();
+    let mut a = r.submit("a".into()).unwrap();
+    let mut b = r.submit("b".into()).unwrap();
+    a.dependencies = vec![b.id];
+    b.dependencies = vec![a.id];
+    r.store.save_task(&a).unwrap();
+    r.store.save_task(&b).unwrap();
+    r.run_ready().await.unwrap();
+    assert_eq!(
+        r.store.task(a.id).unwrap().unwrap().state,
+        TaskState::Failed
+    );
+    assert_eq!(
+        r.store.task(b.id).unwrap().unwrap().state,
+        TaskState::Failed
+    );
+
+    let failed = r.submit("failed".into()).unwrap();
+    let mut failed = failed;
+    failed.state = TaskState::Failed;
+    r.store.save_task(&failed).unwrap();
+    let child = r
+        .submit_with(
+            "child".into(),
+            vec![failed.id],
+            RetryPolicy::default(),
+            None,
+            None,
+        )
+        .unwrap();
+    r.run_ready().await.unwrap();
+    assert_eq!(
+        r.store.task(child.id).unwrap().unwrap().state,
+        TaskState::Failed
+    );
+}
+
+#[test]
+fn retry_override_and_operation_reconciliation_are_audited() {
+    let (_d, mut r) = runtime();
+    let mut task = r.submit("x".into()).unwrap();
+    task.state = TaskState::Failed;
+    r.store.save_task(&task).unwrap();
+    assert_eq!(r.retry(task.id).unwrap().state, TaskState::Queued);
+    r.override_retry(
+        task.id,
+        RetryPolicy {
+            max_attempts: 3,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let kinds: Vec<_> = r
+        .store
+        .audit_for(task.id)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.kind)
+        .collect();
+    assert!(kinds.contains(&"task.retry_requested".into()));
+    assert!(kinds.contains(&"retry.overridden".into()));
+}

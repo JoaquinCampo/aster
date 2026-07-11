@@ -322,6 +322,70 @@ pub struct EffectBroker<'a, A: EffectAdapter> {
     pub adapter: A,
 }
 impl<'a, A: EffectAdapter> EffectBroker<'a, A> {
+    /// Creates and owns the durable operation lifecycle for an effect. The
+    /// intent is committed before authorization or adapter dispatch.
+    pub async fn execute_owned(
+        &self,
+        grant: &ScopedGrant,
+        approval: Option<&Approval>,
+        request: EffectRequest,
+    ) -> Result<(Uuid, Vec<u8>)> {
+        use crate::domain::{Operation, OperationState};
+        let mut operation = Operation {
+            id: Uuid::new_v4(),
+            task_id: grant.task_id,
+            attempt: self.store.operations_for(grant.task_id)?.len() as u32 + 1,
+            state: OperationState::IntentRecorded,
+            retry_safe: false,
+            started_at: Utc::now(),
+            completed_at: None,
+        };
+        self.store.create_operation(&operation)?;
+        operation.state = OperationState::Running;
+        self.store.save_operation(&operation)?;
+        let result = self.execute(operation.id, grant, approval, request).await;
+        operation.completed_at = Some(Utc::now());
+        operation.state = if result.is_ok() {
+            OperationState::Succeeded
+        } else {
+            OperationState::Failed
+        };
+        self.store.save_operation(&operation)?;
+        result.map(|output| (operation.id, output))
+    }
+
+    pub async fn execute_process_owned(
+        &self,
+        grant: &ScopedGrant,
+        approval: Option<&Approval>,
+        request: EffectRequest,
+    ) -> Result<(Uuid, ProcessOutput)> {
+        use crate::domain::{Operation, OperationState};
+        let mut operation = Operation {
+            id: Uuid::new_v4(),
+            task_id: grant.task_id,
+            attempt: self.store.operations_for(grant.task_id)?.len() as u32 + 1,
+            state: OperationState::IntentRecorded,
+            retry_safe: false,
+            started_at: Utc::now(),
+            completed_at: None,
+        };
+        self.store.create_operation(&operation)?;
+        operation.state = OperationState::Running;
+        self.store.save_operation(&operation)?;
+        let result = self
+            .execute_process(operation.id, grant, approval, request)
+            .await;
+        operation.completed_at = Some(Utc::now());
+        operation.state = match &result {
+            Ok(output) if output.cancelled => OperationState::Cancelled,
+            Ok(_) => OperationState::Succeeded,
+            Err(_) => OperationState::Failed,
+        };
+        self.store.save_operation(&operation)?;
+        result.map(|output| (operation.id, output))
+    }
+
     pub async fn execute_process(
         &self,
         operation_id: Uuid,

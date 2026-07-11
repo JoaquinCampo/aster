@@ -189,6 +189,8 @@ pub enum OperationState {
     Running,
     Succeeded,
     Failed,
+    TimedOut,
+    Cancelled,
     OutcomeUnknown,
 }
 

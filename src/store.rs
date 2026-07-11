@@ -92,6 +92,17 @@ impl Store {
         )?;
         Ok(())
     }
+    pub fn operation(&self, id: Uuid) -> Result<Option<Operation>> {
+        let body: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT body FROM operations WHERE id=?1",
+                [id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(body.map(|v| serde_json::from_str(&v)).transpose()?)
+    }
     pub fn operations_for(&self, id: Uuid) -> Result<Vec<Operation>> {
         let mut s = self
             .conn
@@ -135,7 +146,7 @@ impl Store {
         kind: &str,
         detail: &str,
     ) -> Result<Task> {
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.unchecked_transaction()?;
         let mut task = load_tx(&tx, id)?;
         if !from.contains(&task.state) {
             bail!("invalid transition {:?} -> {:?}", task.state, to)
@@ -160,45 +171,198 @@ impl Store {
         tx.commit()?;
         Ok(task)
     }
+    pub fn create_task(&self, task: &Task, events: &[(&str, &str)]) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO tasks(id,body) VALUES(?1,?2)",
+            params![task.id.to_string(), serde_json::to_string(task)?],
+        )?;
+        for (kind, detail) in events {
+            insert_event(&tx, task.id, kind, detail)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn save_task_with_event(&self, task: &Task, kind: &str, detail: &str) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE tasks SET body=?2 WHERE id=?1",
+            params![task.id.to_string(), serde_json::to_string(task)?],
+        )?;
+        insert_event(&tx, task.id, kind, detail)?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn start_operation(&self, task: &Task, op: &Operation) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE tasks SET body=?2 WHERE id=?1",
+            params![task.id.to_string(), serde_json::to_string(task)?],
+        )?;
+        tx.execute(
+            "INSERT INTO operations(id,task_id,attempt,body) VALUES(?1,?2,?3,?4)",
+            params![
+                op.id.to_string(),
+                op.task_id.to_string(),
+                op.attempt,
+                serde_json::to_string(op)?
+            ],
+        )?;
+        insert_event(&tx, task.id, "operation.intent", &op.id.to_string())?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn finish_operation(&self, task: &Task, op: &Operation) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE tasks SET body=?2 WHERE id=?1",
+            params![task.id.to_string(), serde_json::to_string(task)?],
+        )?;
+        tx.execute(
+            "UPDATE operations SET body=?2 WHERE id=?1",
+            params![op.id.to_string(), serde_json::to_string(op)?],
+        )?;
+        insert_event(
+            &tx,
+            task.id,
+            "operation.completed",
+            &format!("{}: {:?}", op.id, task.state),
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn reconcile_operation(
+        &mut self,
+        task_id: Uuid,
+        operation_id: Uuid,
+        outcome: OperationState,
+    ) -> Result<Task> {
+        if !matches!(
+            outcome,
+            OperationState::Succeeded
+                | OperationState::Failed
+                | OperationState::TimedOut
+                | OperationState::Cancelled
+        ) {
+            bail!("invalid reconciliation outcome")
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        let mut task = load_tx(&tx, task_id)?;
+        if task.state != TaskState::OutcomeUnknown {
+            bail!("task is not outcome-unknown")
+        }
+        let body: String = tx.query_row(
+            "SELECT body FROM operations WHERE id=?1 AND task_id=?2",
+            params![operation_id.to_string(), task_id.to_string()],
+            |r| r.get(0),
+        )?;
+        let mut op: Operation = serde_json::from_str(&body)?;
+        if op.state != OperationState::OutcomeUnknown {
+            bail!("operation is not outcome-unknown")
+        }
+        op.state = outcome;
+        op.completed_at = Some(Utc::now());
+        task.state = match outcome {
+            OperationState::Succeeded => TaskState::Succeeded,
+            OperationState::Failed => TaskState::Failed,
+            OperationState::TimedOut => TaskState::TimedOut,
+            OperationState::Cancelled => TaskState::Cancelled,
+            _ => unreachable!(),
+        };
+        task.updated_at = Utc::now();
+        tx.execute(
+            "UPDATE operations SET body=?2 WHERE id=?1",
+            params![operation_id.to_string(), serde_json::to_string(&op)?],
+        )?;
+        tx.execute(
+            "UPDATE tasks SET body=?2 WHERE id=?1",
+            params![task_id.to_string(), serde_json::to_string(&task)?],
+        )?;
+        insert_event(
+            &tx,
+            task_id,
+            "operation.reconciled",
+            &format!("operation_id={operation_id}; outcome={outcome:?}"),
+        )?;
+        tx.commit()?;
+        Ok(task)
+    }
     pub fn recover(&mut self) -> Result<usize> {
-        let ids: Vec<Uuid> = self
-            .tasks()?
-            .into_iter()
-            .filter(|t| {
-                matches!(
-                    t.state,
-                    TaskState::Running | TaskState::Pausing | TaskState::Cancelling
-                )
-            })
-            .map(|t| t.id)
-            .collect();
-        for id in &ids {
-            let mut t = self.task(*id)?.expect("listed task");
-            t.state = TaskState::OutcomeUnknown;
-            t.failure_reason = Some(
+        let tx = self.conn.unchecked_transaction()?;
+        let bodies = {
+            let mut s = tx.prepare("SELECT body FROM tasks")?;
+            s.query_map([], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let mut count = 0;
+        for body in bodies {
+            let mut task: Task = serde_json::from_str(&body)?;
+            if !matches!(
+                task.state,
+                TaskState::Running | TaskState::Pausing | TaskState::Cancelling
+            ) {
+                continue;
+            }
+            task.state = TaskState::OutcomeUnknown;
+            task.failure_reason = Some(
                 "process exited while operation was in flight; reconciliation required".into(),
             );
-            t.updated_at = Utc::now();
-            self.save_task(&t)?;
-            for mut op in self
-                .operations_for(*id)?
-                .into_iter()
-                .filter(|o| o.state == OperationState::Running)
-            {
-                op.state = OperationState::OutcomeUnknown;
-                self.save_operation(&op)?;
+            task.updated_at = Utc::now();
+            tx.execute(
+                "UPDATE tasks SET body=?2 WHERE id=?1",
+                params![task.id.to_string(), serde_json::to_string(&task)?],
+            )?;
+            let ops = {
+                let mut s = tx.prepare("SELECT id,body FROM operations WHERE task_id=?1")?;
+                s.query_map([task.id.to_string()], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            for (id, body) in ops {
+                let mut op: Operation = serde_json::from_str(&body)?;
+                if matches!(
+                    op.state,
+                    OperationState::IntentRecorded | OperationState::Running
+                ) {
+                    op.state = OperationState::OutcomeUnknown;
+                    tx.execute(
+                        "UPDATE operations SET body=?2 WHERE id=?1",
+                        params![id, serde_json::to_string(&op)?],
+                    )?;
+                }
             }
-            self.append(&AuditEvent {
-                id: Uuid::new_v4(),
-                task_id: *id,
-                kind: "recovery.outcome_unknown".into(),
-                detail: "in-flight operation requires reconciliation".into(),
-                at: Utc::now(),
-            })?;
+            insert_event(
+                &tx,
+                task.id,
+                "recovery.outcome_unknown",
+                "in-flight operation requires reconciliation",
+            )?;
+            count += 1;
         }
-        Ok(ids.len())
+        tx.commit()?;
+        Ok(count)
     }
 }
+fn insert_event(tx: &Transaction<'_>, task_id: Uuid, kind: &str, detail: &str) -> Result<()> {
+    let event = AuditEvent {
+        id: Uuid::new_v4(),
+        task_id,
+        kind: kind.into(),
+        detail: detail.into(),
+        at: Utc::now(),
+    };
+    tx.execute(
+        "INSERT INTO audit(id,task_id,body) VALUES(?1,?2,?3)",
+        params![
+            event.id.to_string(),
+            task_id.to_string(),
+            serde_json::to_string(&event)?
+        ],
+    )?;
+    Ok(())
+}
+
 fn load_tx(tx: &Transaction<'_>, id: Uuid) -> Result<Task> {
     let b: String = tx.query_row(
         "SELECT body FROM tasks WHERE id=?1",

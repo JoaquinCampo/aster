@@ -1,9 +1,4 @@
-use crate::{
-    domain::{Task, TaskState},
-    provider::FakePiAdapter,
-    runtime::Runtime,
-    store::Store,
-};
+use crate::{domain::Task, provider::FakePiAdapter, runtime::Runtime, store::Store};
 use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
@@ -278,31 +273,33 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
                 let id = t.id;
                 model.tasks.push(t);
                 model.selected = model.tasks.len() - 1;
-                model.status = format!("queued {id}");
+                model.status = format!("running {id}");
+                match runtime.run_ready().await {
+                    Ok(_) => match runtime.store.tasks() {
+                        Ok(tasks) => model.tasks = tasks,
+                        Err(e) => model.status = format!("error: {e}"),
+                    },
+                    Err(e) => model.status = format!("error: {e}"),
+                }
             }
             Err(e) => model.status = e.to_string(),
         },
         Cmd::Pause(id) => apply_runtime(model, runtime.pause(id)),
         Cmd::Resume(id) => apply_runtime(model, runtime.resume(id)),
         Cmd::Cancel(id) => apply_runtime(model, runtime.cancel(id)),
-        Cmd::Retry(id) => {
-            if let Some(t) = model.tasks.iter_mut().find(|t| t.id == id) {
-                t.state = TaskState::Queued;
-                t.failure_reason = None;
-                match runtime.store.save_task(t) {
-                    Ok(()) => model.status = "retry queued".into(),
-                    Err(e) => model.status = format!("error: {e}"),
-                }
-            }
-        }
+        Cmd::Retry(id) => apply_runtime(model, runtime.retry(id)),
         Cmd::Override(id) => {
-            if let Some(t) = model.tasks.iter_mut().find(|t| t.id == id) {
-                t.route.model = "manual-override".into();
-                match runtime.store.save_task(t) {
-                    Ok(()) => model.status = "deterministic override applied".into(),
-                    Err(e) => model.status = format!("error: {e}"),
-                }
-            }
+            let result = model
+                .tasks
+                .iter()
+                .find(|t| t.id == id)
+                .cloned()
+                .map(|mut t| {
+                    t.route.model = "manual-override".into();
+                    runtime.override_route(id, t.route)
+                })
+                .unwrap_or_else(|| Err(anyhow::anyhow!("task not found")));
+            apply_runtime(model, result);
         }
         Cmd::None => {}
     }
