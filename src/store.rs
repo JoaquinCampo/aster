@@ -1,5 +1,8 @@
 use crate::{
-    domain::{Artifact, AuditEvent, Checkpoint, Operation, OperationState, Task, TaskState},
+    domain::{
+        Artifact, AuditEvent, Checkpoint, ExecutionIsolation, Operation, OperationState, Task,
+        TaskState,
+    },
     effects::OperationAuthorization,
     verification::{DurableEvidence, VerificationRun},
 };
@@ -25,6 +28,8 @@ impl Store {
           CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, operation_id TEXT NOT NULL, digest TEXT NOT NULL, body TEXT NOT NULL);
           CREATE INDEX IF NOT EXISTS artifacts_owner ON artifacts(task_id,attempt,operation_id);
           CREATE TABLE IF NOT EXISTS effect_authorizations(id TEXT PRIMARY KEY, operation_id TEXT NOT NULL, task_id TEXT NOT NULL, body TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS execution_isolation(task_id TEXT NOT NULL, attempt INTEGER NOT NULL, operation_id TEXT NOT NULL, dimension TEXT NOT NULL, active INTEGER NOT NULL, enforced INTEGER NOT NULL, mechanism TEXT NOT NULL, limitation TEXT NOT NULL, recorded_at TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(operation_id,dimension));
+          CREATE INDEX IF NOT EXISTS execution_isolation_owner ON execution_isolation(task_id,attempt,operation_id);
           CREATE TABLE IF NOT EXISTS routing_outcomes(policy_revision INTEGER NOT NULL, role TEXT NOT NULL, model TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(policy_revision,role,model));
           CREATE TABLE IF NOT EXISTS routing_recommendations(id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS verification_runs(id TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, checker_id TEXT NOT NULL, owner_role TEXT NOT NULL, policy TEXT NOT NULL, command_identity TEXT NOT NULL, started_at TEXT NOT NULL, completed_at TEXT, outcome TEXT NOT NULL, exit_status INTEGER, body TEXT NOT NULL);
@@ -35,7 +40,8 @@ impl Store {
           INSERT OR IGNORE INTO schema_migrations VALUES(1, datetime('now'));
           INSERT OR IGNORE INTO schema_migrations VALUES(2, datetime('now'));
           INSERT OR IGNORE INTO schema_migrations VALUES(3, datetime('now'));
-          INSERT OR IGNORE INTO schema_migrations VALUES(4, datetime('now'));" )?;
+          INSERT OR IGNORE INTO schema_migrations VALUES(4, datetime('now'));
+          INSERT OR IGNORE INTO schema_migrations VALUES(5, datetime('now'));" )?;
         Ok(Self { conn })
     }
     pub fn save_task(&self, task: &Task) -> Result<()> {
@@ -127,6 +133,46 @@ impl Store {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         b.into_iter()
             .map(|v| Ok(serde_json::from_str(&v)?))
+            .collect()
+    }
+    pub fn save_execution_isolation(&self, records: &[ExecutionIsolation]) -> Result<()> {
+        if records.len() != crate::domain::IsolationDimension::ALL.len() {
+            bail!("execution isolation requires exactly six dimensions")
+        }
+        let mut dimensions = std::collections::HashSet::new();
+        for record in records {
+            self.validate_owner(record.task_id, record.attempt, record.operation_id)?;
+            if !dimensions.insert(record.dimension) {
+                bail!("duplicate execution isolation dimension")
+            }
+        }
+        for record in records {
+            self.conn.execute("INSERT INTO execution_isolation(task_id,attempt,operation_id,dimension,active,enforced,mechanism,limitation,recorded_at,body) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)", params![record.task_id.to_string(), record.attempt, record.operation_id.to_string(), record.dimension.as_str(), record.active, record.enforced, record.mechanism, record.limitation, record.recorded_at.to_rfc3339(), serde_json::to_string(record)?])?;
+        }
+        Ok(())
+    }
+    pub fn execution_isolation_for(&self, operation_id: Uuid) -> Result<Vec<ExecutionIsolation>> {
+        let mut statement = self.conn.prepare(
+            "SELECT body FROM execution_isolation WHERE operation_id=?1 ORDER BY dimension",
+        )?;
+        let bodies = statement
+            .query_map([operation_id.to_string()], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        bodies
+            .into_iter()
+            .map(|body| Ok(serde_json::from_str(&body)?))
+            .collect()
+    }
+    pub fn execution_isolation_for_task(&self, task_id: Uuid) -> Result<Vec<ExecutionIsolation>> {
+        let mut statement = self.conn.prepare(
+            "SELECT body FROM execution_isolation WHERE task_id=?1 ORDER BY attempt,dimension",
+        )?;
+        let bodies = statement
+            .query_map([task_id.to_string()], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        bodies
+            .into_iter()
+            .map(|body| Ok(serde_json::from_str(&body)?))
             .collect()
     }
     fn validate_owner(&self, task_id: Uuid, attempt: u32, operation_id: Uuid) -> Result<()> {

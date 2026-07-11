@@ -346,6 +346,28 @@ impl<A: PiAdapter> Runtime<A> {
                 completed_at: None,
             };
             self.store.start_operation(&task, &op)?;
+            let recorded_at = Utc::now();
+            let isolation = self
+                .adapter
+                .launch_isolation(&task.route)
+                .into_iter()
+                .map(|mut record| {
+                    record.task_id = task.id;
+                    record.attempt = op.attempt;
+                    record.operation_id = op.id;
+                    record.recorded_at = recorded_at;
+                    record
+                })
+                .collect::<Vec<_>>();
+            self.store.save_execution_isolation(&isolation)?;
+            self.event(
+                &task,
+                "isolation.recorded",
+                format!(
+                    "operation={} attempt={} dimensions=6 source=adapter-launch",
+                    op.id, op.attempt
+                ),
+            )?;
             let inputs = self.store.dependency_artifacts(&task)?;
             self.checkpoint(&task, &op, "operation-intent", serde_json::json!({"state": task.state, "dependency_artifacts": inputs.iter().map(|a| &a.digest).collect::<Vec<_>>()}).to_string())?;
             if !inputs.is_empty() {

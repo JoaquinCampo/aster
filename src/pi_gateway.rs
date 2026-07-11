@@ -228,6 +228,21 @@ impl PiGateway {
 
 #[async_trait]
 impl PiAdapter for PiGateway {
+    fn launch_isolation(&self, _route: &Route) -> Vec<crate::domain::ExecutionIsolation> {
+        use crate::domain::{ExecutionIsolation, IsolationDimension};
+        IsolationDimension::ALL.into_iter().map(|dimension| {
+            let (active, enforced, mechanism, limitation) = match dimension {
+                IsolationDimension::Process => (true, true, "dedicated kill-on-drop child process", "no PID namespace or syscall sandbox"),
+                IsolationDimension::Credentials => (true, true, "environment cleared; only PATH and optional ASTER_PI_NODE_MODULES injected", "child may access credentials available through host files or services"),
+                IsolationDimension::WorkspaceWorktree => (false, false, "inherits runtime working directory", "no separate worktree or workspace boundary"),
+                IsolationDimension::Filesystem => (false, false, "host filesystem access", "no OS filesystem sandbox"),
+                IsolationDimension::Network => (false, false, "host network stack", "no network namespace or destination filter at sidecar launch"),
+                IsolationDimension::ExternalServices => (false, false, "sidecar/provider protocol only", "external-service access is not independently sandboxed"),
+            };
+            ExecutionIsolation { task_id: uuid::Uuid::nil(), attempt: 0, operation_id: uuid::Uuid::nil(), dimension, active, enforced, mechanism: mechanism.into(), limitation: limitation.into(), recorded_at: chrono::Utc::now() }
+        }).collect()
+    }
+
     async fn execute(&self, prompt: &str, route: &Route) -> anyhow::Result<ExecutionResult> {
         let effort = match route.dimensions.effort {
             Effort::Low => ReasoningEffort::Low,

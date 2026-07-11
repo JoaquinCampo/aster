@@ -215,6 +215,52 @@ impl Task {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IsolationDimension {
+    WorkspaceWorktree,
+    Process,
+    Filesystem,
+    Network,
+    Credentials,
+    ExternalServices,
+}
+
+impl IsolationDimension {
+    pub const ALL: [Self; 6] = [
+        Self::WorkspaceWorktree,
+        Self::Process,
+        Self::Filesystem,
+        Self::Network,
+        Self::Credentials,
+        Self::ExternalServices,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WorkspaceWorktree => "workspace_worktree",
+            Self::Process => "process",
+            Self::Filesystem => "filesystem",
+            Self::Network => "network",
+            Self::Credentials => "credentials",
+            Self::ExternalServices => "external_services",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionIsolation {
+    pub task_id: Uuid,
+    pub attempt: u32,
+    pub operation_id: Uuid,
+    pub dimension: IsolationDimension,
+    pub active: bool,
+    pub enforced: bool,
+    pub mechanism: String,
+    pub limitation: String,
+    pub recorded_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Operation {
     pub id: Uuid,

@@ -639,6 +639,24 @@ pub struct ExecutionResult {
 #[async_trait]
 pub trait PiAdapter: Send + Sync {
     async fn execute(&self, prompt: &str, route: &Route) -> anyhow::Result<ExecutionResult>;
+    /// Reports the concrete controls selected by this adapter for the imminent launch.
+    /// The runtime persists these after creating the owning operation and before execution.
+    fn launch_isolation(&self, _route: &Route) -> Vec<crate::domain::ExecutionIsolation> {
+        crate::domain::IsolationDimension::ALL
+            .into_iter()
+            .map(|dimension| crate::domain::ExecutionIsolation {
+                task_id: uuid::Uuid::nil(),
+                attempt: 0,
+                operation_id: uuid::Uuid::nil(),
+                dimension,
+                active: false,
+                enforced: false,
+                mechanism: "adapter declared no launch control".into(),
+                limitation: "no isolation evidence supplied by adapter".into(),
+                recorded_at: chrono::Utc::now(),
+            })
+            .collect()
+    }
     /// A live adapter must opt in before the runtime asks it to prove a lost outcome.
     fn supports_reconciliation(&self) -> bool {
         false
@@ -664,6 +682,23 @@ pub trait PiProcess: Send + Sync {
 pub struct FakePiAdapter;
 #[async_trait]
 impl PiAdapter for FakePiAdapter {
+    fn launch_isolation(&self, _route: &Route) -> Vec<crate::domain::ExecutionIsolation> {
+        crate::domain::IsolationDimension::ALL
+            .into_iter()
+            .map(|dimension| crate::domain::ExecutionIsolation {
+                task_id: uuid::Uuid::nil(),
+                attempt: 0,
+                operation_id: uuid::Uuid::nil(),
+                dimension,
+                active: false,
+                enforced: false,
+                mechanism: "deterministic adapter executes in the runtime process".into(),
+                limitation: "test adapter provides no OS isolation".into(),
+                recorded_at: chrono::Utc::now(),
+            })
+            .collect()
+    }
+
     async fn execute(&self, prompt: &str, route: &Route) -> anyhow::Result<ExecutionResult> {
         if prompt.contains("cenario:timeout") {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
