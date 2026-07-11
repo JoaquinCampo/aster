@@ -29,6 +29,12 @@ tui-use type "implement deterministic acceptance evidence"
 tui-use press enter
 expect "Succeeded"
 capture 120x30-success
+for _ in $(seq 1 7); do tui-use press tab; done
+expect "Isolation dimensions [six independent controls]"
+expect "workspace/worktree: active=false enforced=false"
+expect "mechanism=deterministic adapter executes in the runtime process"
+capture 120x30-isolation-outcomes
+for _ in $(seq 1 7); do tui-use press arrow_left; done
 tui-use type "o"
 expect "route override editor"
 tui-use press arrow_down

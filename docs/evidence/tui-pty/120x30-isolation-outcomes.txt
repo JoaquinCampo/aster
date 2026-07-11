@@ -2,23 +2,23 @@
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Conversation ────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│Conversation [input]                                                                                                  │
-│Type a task and press Enter. Runtime events remain non-blocking.                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
+┌ Permissions/Approvals ───────────────────────────────────────────────────────────────────────────────────────────────┐
+│Permissions/approvals [status]                                                                                        │
+│capabilities: workspace:read                                                                                          │
+│pending: none                                                                                                         │
+│Isolation dimensions [six independent controls]                                                                       │
+│workspace/worktree: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·   │
+│limitation=test adapter provides no OS isolation                                                                      │
+│process: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·              │
+│limitation=test adapter provides no OS isolation                                                                      │
+│filesystem: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·           │
+│limitation=test adapter provides no OS isolation                                                                      │
+│network: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·              │
+│limitation=test adapter provides no OS isolation                                                                      │
+│credentials: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·          │
+│limitation=test adapter provides no OS isolation                                                                      │
+│external-service: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·     │
+│limitation=test adapter provides no OS isolation                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
@@ -27,6 +27,6 @@
 │                                                                                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│>   │ ready  │ Tab screens · ↑↓ select · p pause · s resume · x cancel · r retry · o override · q quit                │
+│>   │ Succeeded bacdcf83-ac90-4d6d-83d3-10403b0a68b3  │ Tab screens · ↑↓ select · p pause · s resume · x cancel · r re│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-─── running | cursor(120,29) | fullscreen:true | title:"" ──────────────────────────────────────────────────────────────
+─── running | cursor(119,25) | fullscreen:true | title:"" ──────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-─── tidy-tapir ───────────────
+─── jazzy-python ─────────────
 ┌────────────────────────────┐
 │ASTER · Conversation        │
 │ready                       │

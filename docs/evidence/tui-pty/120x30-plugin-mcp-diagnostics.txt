@@ -1,4 +1,4 @@
-─── heavy-jackal ───────────────────────────────────────────────────────────────────────────────────────────────────────
+─── pale-bison ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -6,7 +6,7 @@
 │Plugin/MCP diagnostics [list] · transactional installer                                                               │
 │Commands: install|PATH · upgrade|PATH · uninstall|ID · enable|ID · disable|ID · diagnostics                           │
 │Endpoint destinations and disclosed context classes are shown before use. Network access is capability-mediated.      │
-│health checked: 2026-07-11T22:51:08.805483+00:00                                                                      │
+│health checked: 2026-07-11T23:37:55.983400+00:00                                                                      │
 │No plugins discovered                                                                                                 │
 │Codex bridge · Fixture · auth=NotRequired · models=gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol · reasoning=ModelDependent  │
 │tools=Supported stream=Supported usage=Supported errors=Supported cancel=Supported · deterministic fixture; no live   │

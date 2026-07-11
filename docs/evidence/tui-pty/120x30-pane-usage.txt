@@ -1,4 +1,4 @@
-─── kind-raven ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+─── jazzy-dingo ────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -7,18 +7,18 @@
 │capabilities: workspace:read                                                                                          │
 │pending: none                                                                                                         │
 │Isolation dimensions [six independent controls]                                                                       │
-│workspace/worktree: process:none, network:denied, credentials:none                                                    │
-│process: brokered/scrubbed                                                                                            │
-│filesystem: workspace-scoped                                                                                          │
-│network: destination-allowlisted                                                                                      │
-│credentials: destination-scoped                                                                                       │
-│external-service: service/action-allowlisted                                                                          │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
+│workspace/worktree: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·   │
+│limitation=test adapter provides no OS isolation                                                                      │
+│process: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·              │
+│limitation=test adapter provides no OS isolation                                                                      │
+│filesystem: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·           │
+│limitation=test adapter provides no OS isolation                                                                      │
+│network: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·              │
+│limitation=test adapter provides no OS isolation                                                                      │
+│credentials: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·          │
+│limitation=test adapter provides no OS isolation                                                                      │
+│external-service: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·     │
+│limitation=test adapter provides no OS isolation                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

@@ -1,30 +1,30 @@
-─── kind-raven ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+─── jazzy-dingo ────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Audit ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │Audit events [log]                                                                                                    │
-│22:50:46 · route.outcome ·                                                                                            │
-│{"attempt":1,"decision_id":"v1:implementer:fake-terra:75:86","latency_ms":0,"model":"fake-terra","policy_revision":1,"│
+│23:37:26 · route.outcome ·                                                                                            │
+│{"attempt":1,"decision_id":"v1:implementer:fake-terra:75:86","latency_ms":1,"model":"fake-terra","policy_revision":1,"│
 │role":"implementer","state":"Succeeded","tokens":16,"verified":true}                                                  │
-│22:50:46 · checkpoint.saved · id=2677a6e6-2a34-4286-9177-1e35544dc8c5 operation=9c9cf501-c55c-4e0e-ae16-4ff239eb3fcd  │
-│attempt=1 phase=operation-terminal payload_ref=checkpoint:2677a6e6-2a34-4286-9177-1e35544dc8c5                        │
-│22:50:46 · operation.completed · 9c9cf501-c55c-4e0e-ae16-4ff239eb3fcd: Succeeded                                      │
-│22:50:46 · artifact.persisted · id=5d9f7212-aaaa-489a-b97f-08da7c06c222 operation=9c9cf501-c55c-4e0e-ae16-4ff239eb3fcd│
-│attempt=1 name=provider-output.txt payload_ref=artifact:5d9f7212-aaaa-489a-b97f-08da7c06c222                          │
+│23:37:26 · checkpoint.saved · id=6f2a4400-9819-4d94-9fbb-889c4c95411f operation=1852372f-86e9-44d2-8ab5-8f9448199593  │
+│attempt=1 phase=operation-terminal payload_ref=checkpoint:6f2a4400-9819-4d94-9fbb-889c4c95411f                        │
+│23:37:26 · operation.completed · 1852372f-86e9-44d2-8ab5-8f9448199593: Succeeded                                      │
+│23:37:26 · artifact.persisted · id=95ac6c8b-6c1c-4906-8f0a-e8c5741373bc operation=1852372f-86e9-44d2-8ab5-8f9448199593│
+│attempt=1 name=provider-output.txt payload_ref=artifact:95ac6c8b-6c1c-4906-8f0a-e8c5741373bc                          │
 │provenance=provider:fake-terra;decision:v1:implementer:fake-terra:75:86                                               │
-│22:50:46 · operation.started · 9c9cf501-c55c-4e0e-ae16-4ff239eb3fcd                                                   │
-│22:50:46 · checkpoint.saved · id=c6fd87d9-c078-4588-a053-2b0c09b24dd1 operation=9c9cf501-c55c-4e0e-ae16-4ff239eb3fcd  │
-│attempt=1 phase=operation-intent payload_ref=checkpoint:c6fd87d9-c078-4588-a053-2b0c09b24dd1                          │
-│22:50:46 · operation.intent · 9c9cf501-c55c-4e0e-ae16-4ff239eb3fcd                                                    │
-│22:50:46 · task.queued · Task durably queued                                                                          │
-│22:50:46 · route.selected ·                                                                                           │
+│23:37:26 · operation.started · 1852372f-86e9-44d2-8ab5-8f9448199593                                                   │
+│23:37:26 · checkpoint.saved · id=232d4405-eb2a-4218-b855-7bf4715001a9 operation=1852372f-86e9-44d2-8ab5-8f9448199593  │
+│attempt=1 phase=operation-intent payload_ref=checkpoint:232d4405-eb2a-4218-b855-7bf4715001a9                          │
+│23:37:26 · isolation.recorded · operation=1852372f-86e9-44d2-8ab5-8f9448199593 attempt=1 dimensions=6                 │
+│source=adapter-launch                                                                                                 │
+│23:37:26 · operation.intent · 1852372f-86e9-44d2-8ab5-8f9448199593                                                    │
+│23:37:26 · task.queued · Task durably queued                                                                          │
+│23:37:26 · route.selected ·                                                                                           │
 │{"budgets":{"timeout_ms":null,"token_budget":null},"decision_id":"v1:implementer:fake-terra:75:86","overrides":{"capab│
 │ilities":null,"context_tokens":null,"effort":null,"isolation":null,"lifecycle":null,"max_cost_micros":null,"max_latenc│
 │y_ms":null,"model":null,"output_tokens":null,"role":null,"tools":null,"verification":null},"policy_revision":1,"route"│
 │:{"decision_id":"v1:implementer:fake-terra:75:86","dimensions":{"capabilities":["workspace:read"],"context_tokens":160│
-│00,"effort":"medium","isolation":["process:none","network:denied","credentials:none"],"lifecycle":"run-to-completion-w│
-│ith-checkpoint","max_latency_ms":300,"output_tokens":4000,"tools":["read","search"],"verification":"deterministic-outp│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │>   │ pause unavailable for Succeeded  │ Tab screens · ↑↓ select · p pause · s resume · x cancel · r retry · o overrid│

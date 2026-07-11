@@ -8,7 +8,9 @@ Every effect from trusted core code must pass through `EffectBroker` or an indep
 
 ## Isolation dimensions
 
-Filesystem, process, network, credential, external-service, and workspace/worktree isolation are independent and must be reported independently. Current macOS enforcement is broker policy, not a kernel sandbox: there is no container/namespace boundary, syscall filter, complete TOCTOU defense, or protection from trusted code that bypasses the broker. Network/external transports are deny-by-default until implemented.
+Filesystem, process, network, credential, external-service, and workspace/worktree isolation are independent and must be reported independently. For every runtime operation, the selected adapter reports the concrete launch outcome for all six dimensions. The runtime stores these normalized records with task, attempt, and operation ownership before provider execution. Each record states whether the control was active, whether it was enforced, its mechanism, and its limitation. The Permissions/Approvals TUI pane queries those durable records for the selected execution, including after restart; it does not infer enforcement from route intent.
+
+Current macOS enforcement is broker policy, not a kernel sandbox: there is no container/namespace boundary, syscall filter, complete TOCTOU defense, or protection from trusted code that bypasses the broker. Network/external transports are deny-by-default until implemented. The deterministic in-process adapter therefore reports all six controls inactive and unenforced rather than presenting fixture policy as isolation. The Pi sidecar reports its enforced dedicated child process and cleared launch environment while explicitly reporting inherited working-directory, host-filesystem, host-network, host-credential-file/service, and external-service limitations.
 
 Processes receive argv rather than shell strings and a cleared environment populated only by grants. Filesystem checks canonicalize roots and targets, reject traversal, and prevent known symlink escapes. Production hardening still requires sandboxed workers and descriptor-relative access.
 

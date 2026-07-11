@@ -1,7 +1,7 @@
 use crate::{
     config::ConfigDocument,
     context,
-    domain::{AuditEvent, Task, TaskState},
+    domain::{AuditEvent, ExecutionIsolation, IsolationDimension, Task, TaskState},
     memory::{MemoryScope, MemoryStore},
     plugin,
     provider::{FakePiAdapter, builtin_statuses},
@@ -87,6 +87,7 @@ pub struct Observability {
     pub plugins: Vec<String>,
     pub diagnostics: Vec<String>,
     pub artifacts: Vec<String>,
+    pub isolation: Vec<ExecutionIsolation>,
     pub health_checked_at: String,
 }
 
@@ -450,6 +451,15 @@ fn refresh_observability(model: &mut Model, store: &Store, db_path: &Path) {
         .flat_map(|t| store.audit_for(t.id).unwrap_or_default())
         .collect();
     model.observability.audit.sort_by_key(|e| e.at);
+    model.observability.isolation = model
+        .tasks
+        .iter()
+        .flat_map(|task| {
+            store
+                .execution_isolation_for_task(task.id)
+                .unwrap_or_default()
+        })
+        .collect();
     model.observability.artifacts = model
         .tasks
         .iter()
@@ -767,6 +777,16 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
         .flat_map(|t| runtime.store.audit_for(t.id).unwrap_or_default())
         .collect();
     model.observability.audit.sort_by_key(|e| e.at);
+    model.observability.isolation = model
+        .tasks
+        .iter()
+        .flat_map(|task| {
+            runtime
+                .store
+                .execution_isolation_for_task(task.id)
+                .unwrap_or_default()
+        })
+        .collect();
 }
 fn execute_plugin_command(installer: &plugin::PluginInstaller, command: &str) -> Result<String> {
     let parts: Vec<_> = command.split('|').map(str::trim).collect();
@@ -929,15 +949,47 @@ fn action_availability(t: &Task) -> String {
     )
 }
 
-fn isolation_report(t: &Task) -> String {
-    let declared = if t.route.dimensions.isolation.is_empty() {
-        "unspecified".into()
-    } else {
-        t.route.dimensions.isolation.join(", ")
+fn isolation_report(t: &Task, records: &[ExecutionIsolation]) -> String {
+    let latest_attempt = records
+        .iter()
+        .filter(|record| record.task_id == t.id)
+        .map(|record| record.attempt)
+        .max();
+    let Some(attempt) = latest_attempt else {
+        return "No persisted isolation outcome for this execution".into();
     };
-    format!(
-        "workspace/worktree: {declared}\nprocess: brokered/scrubbed\nfilesystem: workspace-scoped\nnetwork: destination-allowlisted\ncredentials: destination-scoped\nexternal-service: service/action-allowlisted"
-    )
+    let label = |dimension| match dimension {
+        IsolationDimension::WorkspaceWorktree => "workspace/worktree",
+        IsolationDimension::Process => "process",
+        IsolationDimension::Filesystem => "filesystem",
+        IsolationDimension::Network => "network",
+        IsolationDimension::Credentials => "credentials",
+        IsolationDimension::ExternalServices => "external-service",
+    };
+    IsolationDimension::ALL
+        .into_iter()
+        .map(|dimension| {
+            records
+                .iter()
+                .find(|record| {
+                    record.task_id == t.id
+                        && record.attempt == attempt
+                        && record.dimension == dimension
+                })
+                .map(|record| {
+                    format!(
+                        "{}: active={} enforced={} · mechanism={} · limitation={}",
+                        label(dimension),
+                        record.active,
+                        record.enforced,
+                        record.mechanism,
+                        record.limitation
+                    )
+                })
+                .unwrap_or_else(|| format!("{}: missing persisted outcome", label(dimension)))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
@@ -981,7 +1033,7 @@ fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
             let pending = m.pending_approvals.iter().find(|request| request.task_id == t.id)
                 .map(|request| format!("pending: {}\ndigest: {}\n[a] allow exact request · [d] deny", request.summary, request.request_digest))
                 .unwrap_or_else(|| "pending: none".into());
-            format!("Permissions/approvals [status]\ncapabilities: {}\n{}\nIsolation dimensions [six independent controls]\n{}", t.route.dimensions.capabilities.join(", "), pending, isolation_report(t))
+            format!("Permissions/approvals [status]\ncapabilities: {}\n{}\nIsolation dimensions [six independent controls]\n{}", t.route.dimensions.capabilities.join(", "), pending, isolation_report(t, &m.observability.isolation))
         }).unwrap_or("No task selected".into()),
         Screen::Context => format!("Context manifest [list]\n{}", lines(&m.observability.context,"No discovered context assets")),
         Screen::Artifacts => format!("Artifact/checkpoint index [normalized · durable · query-backed]\n{}", lines(&m.observability.artifacts, "No durable checkpoints or artifacts")),
@@ -1215,11 +1267,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn isolation_outcomes_refresh_after_execution_and_restart() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("tui-isolation.db");
+        let mut runtime = Runtime::new(Store::open(&path).unwrap(), FakePiAdapter);
+        let mut model = Model::new(vec![]);
+        execute_cmd(
+            &mut model,
+            &mut runtime,
+            Cmd::Submit("implement query-backed isolation evidence".into()),
+        )
+        .await;
+        assert_eq!(model.observability.isolation.len(), 6);
+        model.screen = Screen::Approvals;
+        let rendered = render(120, 30, &model);
+        assert!(rendered.contains("workspace/worktree: active=false enforced=false"));
+        assert!(rendered.contains("test adapter provides no OS isolation"));
+        drop(runtime);
+
+        let reopened = Store::open(&path).unwrap();
+        let mut restarted = Model::new(reopened.tasks().unwrap());
+        restarted.screen = Screen::Approvals;
+        refresh_observability(&mut restarted, &reopened, &path);
+        assert_eq!(restarted.observability.isolation.len(), 6);
+        assert!(
+            render(120, 30, &restarted)
+                .contains("mechanism=deterministic adapter executes in the runtime process")
+        );
+    }
+
+    #[tokio::test]
     async fn approval_allow_deny_and_six_isolation_dimensions_are_visible() {
         let task = sample();
         let task_id = task.id;
         let mut m = Model::new(vec![task]);
         m.screen = Screen::Approvals;
+        m.observability.isolation = IsolationDimension::ALL
+            .into_iter()
+            .map(|dimension| ExecutionIsolation {
+                task_id,
+                attempt: 1,
+                operation_id: uuid::Uuid::new_v4(),
+                dimension,
+                active: dimension == IsolationDimension::Process,
+                enforced: dimension == IsolationDimension::Process,
+                mechanism: "persisted test mechanism".into(),
+                limitation: "persisted test limitation".into(),
+                recorded_at: chrono::Utc::now(),
+            })
+            .collect();
         m.pending_approvals.push(PendingApproval {
             task_id,
             request_digest: "0123456789abcdef".into(),
@@ -1239,6 +1335,9 @@ mod tests {
                 "missing isolation dimension {label}"
             );
         }
+        assert!(rendered.contains("active=true enforced=true"));
+        assert!(rendered.contains("mechanism=persisted test mechanism"));
+        assert!(rendered.contains("limitation=persisted test limitation"));
         let allow = update_key(&mut m, KeyCode::Char('a'));
         assert_eq!(allow, Cmd::DecideApproval("0123456789abcdef".into(), true));
         let mut runtime = Runtime::new(Store::open(":memory:").unwrap(), FakePiAdapter);
