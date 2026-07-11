@@ -1,16 +1,16 @@
-─── eager-lemur ────────────────────────────────────────────
+─── brave-finch ────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│
 └──────────────────────────────────────────────────────────┘
 ┌ Tasks · compact ─────────────────────────────────────────┐
-│› 90eae64e Succeeded implement deterministic acceptance   │
+│› e65f9318 Succeeded implement deterministic acceptance   │
 │evidence · Actions: pause=false resume=false cancel=false │
 │retry=false                                               │
-│  38b62654 TimedOut cenario:timeout · Actions: pause=false│
+│  2e68fe9e TimedOut cenario:timeout · Actions: pause=false│
 │resume=false cancel=false retry=true                      │
-│  bd0fc3d6 Failed cenario:permission-denied · Actions:    │
+│  76f30264 Failed cenario:permission-denied · Actions:    │
 │pause=false resume=false cancel=false retry=true          │
-│  02498bba Cancelled cenario:in-flight-cancellation ·     │
+│  673e7be6 Cancelled cenario:in-flight-cancellation ·     │
 └──────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────┐
 │>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│

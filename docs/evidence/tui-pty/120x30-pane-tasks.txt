@@ -1,9 +1,9 @@
-─── noble-newt ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+─── merry-gecko ────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Tasks ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│› 90eae64e Succeeded implement deterministic acceptance evidence · Actions: pause=false resume=false cancel=false     │
+│› e65f9318 Succeeded implement deterministic acceptance evidence · Actions: pause=false resume=false cancel=false     │
 │retry=false                                                                                                           │
 │                                                                                                                      │
 │                                                                                                                      │

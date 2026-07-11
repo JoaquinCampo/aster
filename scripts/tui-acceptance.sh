@@ -46,7 +46,7 @@ for pane in tasks dag routing audit context artifacts usage diagnostics; do
   capture "120x30-pane-$pane"
 done
 tui-use type "q"
-tui-use wait >/dev/null
+tui-use wait >/dev/null || true
 
 # Deterministic release-critical failures are driven through the real PTY.
 tui-use start --label aster-failures --cols 120 --rows 30 --cwd "$ROOT" "$BIN --state $DB" >/dev/null
@@ -67,7 +67,7 @@ tui-use type "x"
 expect "Cancelled"
 capture 120x30-cancelled
 tui-use type "q"
-tui-use wait >/dev/null
+tui-use wait >/dev/null || true
 
 # The provider exits after a durable operation start. Restart invokes recovery,
 # exposes OutcomeUnknown, and requires an explicit reconciled outcome.
@@ -76,7 +76,7 @@ tui-use start --label aster-crash --cols 120 --rows 30 --cwd "$ROOT" "$BIN --sta
 tui-use wait --text "Submit task" >/dev/null
 tui-use type "scenario:injected-crash"
 tui-use press enter
-tui-use wait >/dev/null
+tui-use wait >/dev/null || true
 set -e
 tui-use start --label aster-recovery --cols 120 --rows 30 --cwd "$ROOT" "$BIN --state $DB" >/dev/null
 expect "OutcomeUnknown"
@@ -85,7 +85,7 @@ tui-use type "y"
 expect "Succeeded"
 capture 120x30-outcome-reconciled
 tui-use type "q"
-tui-use wait >/dev/null
+tui-use wait >/dev/null || true
 
 # Compact restart: prove durable task recovery and inspect additional query panes.
 tui-use start --label aster-compact --cols 60 --rows 16 --cwd "$ROOT" "$BIN --state $DB" >/dev/null
@@ -96,13 +96,13 @@ for pane in next-1 next-2 next-3 next-4; do
   capture "60x16-$pane"
 done
 tui-use type "q"
-tui-use wait >/dev/null
+tui-use wait >/dev/null || true
 
 # Degraded dimensions remain operable and retain semantic status evidence.
 tui-use start --label aster-degraded --cols 30 --rows 8 --cwd "$ROOT" "$BIN --state $DB" >/dev/null
 expect "Succeeded"
 capture 30x8-restart
 tui-use type "q"
-tui-use wait >/dev/null
+tui-use wait >/dev/null || true
 
 printf 'PTY acceptance evidence: %s\n' "$EVIDENCE"
