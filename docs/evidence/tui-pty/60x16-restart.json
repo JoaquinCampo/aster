@@ -1,5 +1,5 @@
 {
-  "session_id": "grand-okapi",
+  "session_id": "eager-lemur",
   "screen": "┌ ASTER ───────────────────────────────────────────────────┐\n│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│\n└──────────────────────────────────────────────────────────┘\n┌ Conversation · compact ──────────────────────────────────┐\n│Conversation [input]                                      │\n│Type a task and press Enter. Runtime events remain        │\n│non-blocking.                                             │\n│                                                          │\n│                                                          │\n│                                                          │\n│                                                          │\n│                                                          │\n└──────────────────────────────────────────────────────────┘\n┌──────────────────────────────────────────────────────────┐\n│>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│\n└──────────────────────────────────────────────────────────┘",
   "cursor": {
     "x": 60,

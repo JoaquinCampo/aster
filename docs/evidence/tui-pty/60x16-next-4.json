@@ -1,5 +1,5 @@
 {
-  "session_id": "grand-okapi",
+  "session_id": "eager-lemur",
   "screen": "┌ ASTER ───────────────────────────────────────────────────┐\n│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│\n└──────────────────────────────────────────────────────────┘\n┌ Routing/Overrides · compact ─────────────────────────────┐\n│Route trace [detail]                                      │\n│decision: v1:orchestrator:fake-luna:50:68                 │\n│role: orchestrator                                        │\n│model: fake-luna                                          │\n│effort: low                                               │\n│rationale: deterministic policy; cheapest eligible profile│\n│meeting hard quality 50; no persisted outcome history used│\n│effects/escalations:                                      │\n└──────────────────────────────────────────────────────────┘\n┌──────────────────────────────────────────────────────────┐\n│>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│\n└──────────────────────────────────────────────────────────┘",
   "cursor": {
     "x": 21,

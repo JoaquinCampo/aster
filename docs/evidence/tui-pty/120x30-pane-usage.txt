@@ -1,18 +1,18 @@
-─── odd-raven ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+─── noble-newt ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Permissions/Approvals ───────────────────────────────────────────────────────────────────────────────────────────────┐
 │Permissions/approvals [status]                                                                                        │
 │capabilities: workspace:read                                                                                          │
-│isolation: process:none, network:denied, credentials:none                                                             │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
+│pending: none                                                                                                         │
+│Isolation dimensions [six independent controls]                                                                       │
+│workspace/worktree: process:none, network:denied, credentials:none                                                    │
+│process: brokered/scrubbed                                                                                            │
+│filesystem: workspace-scoped                                                                                          │
+│network: destination-allowlisted                                                                                      │
+│credentials: destination-scoped                                                                                       │
+│external-service: service/action-allowlisted                                                                          │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
@@ -29,4 +29,4 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │>   │ pause unavailable for Succeeded  │ Tab screens · ↑↓ select · p pause · s resume · x cancel · r retry · o overrid│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-─── running | cursor(21,11) | fullscreen:true | title:"" ───────────────────────────────────────────────────────────────
+─── running | cursor(45,13) | fullscreen:true | title:"" ───────────────────────────────────────────────────────────────

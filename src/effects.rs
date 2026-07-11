@@ -116,8 +116,27 @@ pub struct Approval {
     pub id: Uuid,
     pub task_id: Uuid,
     pub grant_id: Uuid,
+    /// Digest of the complete serialized request. Any destination, payload,
+    /// argument, environment, or path mutation invalidates the approval.
     pub request_hash: String,
     pub expires_at: DateTime<Utc>,
+}
+
+impl Approval {
+    pub fn for_request(
+        task_id: Uuid,
+        grant_id: Uuid,
+        request: &EffectRequest,
+        expires_at: DateTime<Utc>,
+    ) -> Result<Self> {
+        Ok(Self {
+            id: Uuid::new_v4(),
+            task_id,
+            grant_id,
+            request_hash: request_hash(request)?,
+            expires_at,
+        })
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OperationAuthorization {
@@ -323,6 +342,27 @@ impl EffectAdapter for SystemAdapter {
     }
 }
 
+fn authorize_approval(
+    grant: &ScopedGrant,
+    request: &EffectRequest,
+    approval: Option<&Approval>,
+) -> Result<String> {
+    let hash = request_hash(request)?;
+    let requires_approval = !matches!(request, EffectRequest::ReadFile { .. });
+    if requires_approval && approval.is_none() {
+        bail!("explicit approval required for mutating or external effect")
+    }
+    if let Some(a) = approval
+        && (a.task_id != grant.task_id
+            || a.grant_id != grant.id
+            || a.request_hash != hash
+            || a.expires_at <= Utc::now())
+    {
+        bail!("approval is not bound to this request")
+    }
+    Ok(hash)
+}
+
 pub struct EffectBroker<'a, A: EffectAdapter> {
     pub store: &'a Store,
     pub adapter: A,
@@ -400,15 +440,7 @@ impl<'a, A: EffectAdapter> EffectBroker<'a, A> {
         request: EffectRequest,
     ) -> Result<ProcessOutput> {
         Policy::evaluate(grant, &request)?;
-        let hash = request_hash(&request)?;
-        if let Some(a) = approval
-            && (a.task_id != grant.task_id
-                || a.grant_id != grant.id
-                || a.request_hash != hash
-                || a.expires_at <= Utc::now())
-        {
-            bail!("approval is not bound to this request")
-        }
+        let hash = authorize_approval(grant, &request, approval)?;
         let auth = OperationAuthorization {
             id: Uuid::new_v4(),
             operation_id,
@@ -438,15 +470,7 @@ impl<'a, A: EffectAdapter> EffectBroker<'a, A> {
         request: EffectRequest,
     ) -> Result<Vec<u8>> {
         Policy::evaluate(grant, &request)?;
-        let hash = request_hash(&request)?;
-        if let Some(a) = approval
-            && (a.task_id != grant.task_id
-                || a.grant_id != grant.id
-                || a.request_hash != hash
-                || a.expires_at <= Utc::now())
-        {
-            bail!("approval is not bound to this request")
-        }
+        let hash = authorize_approval(grant, &request, approval)?;
         let auth = OperationAuthorization {
             id: Uuid::new_v4(),
             operation_id,

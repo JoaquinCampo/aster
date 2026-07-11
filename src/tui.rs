@@ -89,6 +89,13 @@ pub struct Observability {
     pub health_checked_at: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingApproval {
+    pub task_id: uuid::Uuid,
+    pub request_digest: String,
+    pub summary: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct Model {
     pub screen: Screen,
@@ -103,6 +110,8 @@ pub struct Model {
     pub override_choice: usize,
     pub config_path: Option<std::path::PathBuf>,
     pub config_selected: usize,
+    pub pending_approvals: Vec<PendingApproval>,
+    pub approval_decisions: Vec<(String, bool)>,
 }
 
 impl Model {
@@ -120,6 +129,8 @@ impl Model {
             override_choice: 0,
             config_path: None,
             config_selected: 0,
+            pending_approvals: vec![],
+            approval_decisions: vec![],
         }
     }
 }
@@ -144,6 +155,7 @@ pub enum Cmd {
     Reconcile(uuid::Uuid, bool),
     Override(uuid::Uuid),
     EditConfig(String, String),
+    DecideApproval(String, bool),
     Quit,
 }
 
@@ -254,6 +266,12 @@ fn update_key(model: &mut Model, code: KeyCode) -> Cmd {
             model.input.pop();
             Cmd::None
         }
+        KeyCode::Char('a') if model.input.is_empty() && model.screen == Screen::Approvals => {
+            decide_visible_approval(model, true)
+        }
+        KeyCode::Char('d') if model.input.is_empty() && model.screen == Screen::Approvals => {
+            decide_visible_approval(model, false)
+        }
         KeyCode::Char('p') if model.input.is_empty() => request_action(model, "pause", Cmd::Pause),
         KeyCode::Char('s') if model.input.is_empty() => {
             request_action(model, "resume", Cmd::Resume)
@@ -297,6 +315,28 @@ fn update_key(model: &mut Model, code: KeyCode) -> Cmd {
         _ => Cmd::None,
     }
 }
+fn decide_visible_approval(model: &mut Model, allowed: bool) -> Cmd {
+    let Some(task_id) = model.tasks.get(model.selected).map(|task| task.id) else {
+        model.status = "no task selected".into();
+        return Cmd::None;
+    };
+    let Some(request) = model
+        .pending_approvals
+        .iter()
+        .find(|request| request.task_id == task_id)
+    else {
+        model.status = "no pending approval for selected task".into();
+        return Cmd::None;
+    };
+    model.status = if allowed {
+        "approval allowed; exact request digest recorded"
+    } else {
+        "approval denied; operation remains blocked"
+    }
+    .into();
+    Cmd::DecideApproval(request.request_digest.clone(), allowed)
+}
+
 fn request_action(model: &mut Model, name: &str, f: impl FnOnce(uuid::Uuid) -> Cmd) -> Cmd {
     let Some(task) = model.tasks.get(model.selected) else {
         model.status = "no task selected".into();
@@ -565,6 +605,17 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
                 Err(e) => model.status = format!("route override rejected: {e}"),
             }
         }
+        Cmd::DecideApproval(digest, allowed) => {
+            model.approval_decisions.push((digest.clone(), allowed));
+            model
+                .pending_approvals
+                .retain(|request| request.request_digest != digest);
+            model.status = format!(
+                "approval {} for request {}",
+                if allowed { "allowed" } else { "denied" },
+                &digest[..digest.len().min(12)]
+            );
+        }
         Cmd::EditConfig(field, value) => {
             let result = model
                 .config_path
@@ -641,6 +692,17 @@ fn action_availability(t: &Task) -> String {
     )
 }
 
+fn isolation_report(t: &Task) -> String {
+    let declared = if t.route.dimensions.isolation.is_empty() {
+        "unspecified".into()
+    } else {
+        t.route.dimensions.isolation.join(", ")
+    };
+    format!(
+        "workspace/worktree: {declared}\nprocess: brokered/scrubbed\nfilesystem: workspace-scoped\nnetwork: destination-allowlisted\ncredentials: destination-scoped\nexternal-service: service/action-allowlisted"
+    )
+}
+
 fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
     let selected = m.tasks.get(m.selected);
     let lines = |v: &[String], empty: &str| {
@@ -678,7 +740,12 @@ fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
         Screen::Usage => selected.map(|t|format!("Usage and budgets [meter]\ntokens: {} / {}\nremaining: {}\nattempts: {} / {}\ntimeout: {} ms",t.tokens_used,t.token_budget.map(|x|x.to_string()).unwrap_or("unlimited".into()),t.token_budget.map(|b|b.saturating_sub(t.tokens_used).to_string()).unwrap_or("unlimited".into()),t.attempts,t.retry.max_attempts,t.timeout_ms.map(|x|x.to_string()).unwrap_or("none".into()))).unwrap_or("No usage".into()),
         Screen::Transcripts => selected.and_then(|t|t.output.clone()).unwrap_or("No transcript yet".into()),
         Screen::Audit => format!("Audit events [log]\n{}", m.observability.audit.iter().rev().map(|e|format!("{} · {} · {}",e.at.format("%H:%M:%S"),e.kind,e.detail)).collect::<Vec<_>>().join("\n")),
-        Screen::Approvals => selected.map(|t| format!("Permissions/approvals [status]\ncapabilities: {}\nisolation: {}",t.route.dimensions.capabilities.join(", "),t.route.dimensions.isolation.join(", "))).unwrap_or("No task selected".into()),
+        Screen::Approvals => selected.map(|t| {
+            let pending = m.pending_approvals.iter().find(|request| request.task_id == t.id)
+                .map(|request| format!("pending: {}\ndigest: {}\n[a] allow exact request · [d] deny", request.summary, request.request_digest))
+                .unwrap_or_else(|| "pending: none".into());
+            format!("Permissions/approvals [status]\ncapabilities: {}\n{}\nIsolation dimensions [six independent controls]\n{}", t.route.dimensions.capabilities.join(", "), pending, isolation_report(t))
+        }).unwrap_or("No task selected".into()),
         Screen::Context => format!("Context manifest [list]\n{}", lines(&m.observability.context,"No discovered context assets")),
         Screen::Artifacts => format!("Artifact index [all tasks · query-backed]\n{}",m.tasks.iter().map(|t|format!("{} · transcript={} · verification={} · failure={}",&t.id.to_string()[..8],if t.output.is_some(){"persisted"}else{"none"},t.verification.as_deref().unwrap_or("not run"),t.failure_reason.as_deref().unwrap_or("none"))).collect::<Vec<_>>().join("\n")),
         Screen::Config => format!(
@@ -815,6 +882,53 @@ mod tests {
                 .config
                 .verification
                 .enabled
+        );
+    }
+
+    #[tokio::test]
+    async fn approval_allow_deny_and_six_isolation_dimensions_are_visible() {
+        let task = sample();
+        let task_id = task.id;
+        let mut m = Model::new(vec![task]);
+        m.screen = Screen::Approvals;
+        m.pending_approvals.push(PendingApproval {
+            task_id,
+            request_digest: "0123456789abcdef".into(),
+            summary: "network api.example.com".into(),
+        });
+        let rendered = render(120, 30, &m);
+        for label in [
+            "workspace/worktree",
+            "process",
+            "filesystem",
+            "network",
+            "credentials",
+            "external-service",
+        ] {
+            assert!(
+                rendered.contains(label),
+                "missing isolation dimension {label}"
+            );
+        }
+        let allow = update_key(&mut m, KeyCode::Char('a'));
+        assert_eq!(allow, Cmd::DecideApproval("0123456789abcdef".into(), true));
+        let mut runtime = Runtime::new(Store::open(":memory:").unwrap(), FakePiAdapter);
+        execute_cmd(&mut m, &mut runtime, allow).await;
+        assert_eq!(
+            m.approval_decisions,
+            vec![("0123456789abcdef".into(), true)]
+        );
+        m.pending_approvals.push(PendingApproval {
+            task_id,
+            request_digest: "deny-digest".into(),
+            summary: "secret redirect".into(),
+        });
+        let deny = update_key(&mut m, KeyCode::Char('d'));
+        assert_eq!(deny, Cmd::DecideApproval("deny-digest".into(), false));
+        execute_cmd(&mut m, &mut runtime, deny).await;
+        assert_eq!(
+            m.approval_decisions.last(),
+            Some(&("deny-digest".into(), false))
         );
     }
 

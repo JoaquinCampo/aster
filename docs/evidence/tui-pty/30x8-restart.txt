@@ -1,4 +1,4 @@
-─── rapid-raven ──────────────
+─── nice-koala ───────────────
 ┌────────────────────────────┐
 │ASTER · Conversation        │
 │ready                       │

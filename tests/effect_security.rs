@@ -208,3 +208,75 @@ async fn symlink_escape_is_denied() {
     );
     assert_eq!(calls.load(Ordering::SeqCst), 0)
 }
+
+#[tokio::test]
+async fn sensitive_effects_cannot_bypass_explicit_approval() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open(d.path().join("db")).unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let broker = EffectBroker {
+        store: &store,
+        adapter: Spy(calls.clone()),
+    };
+    let request = EffectRequest::Network {
+        destination: "api.example.com".into(),
+        payload: b"unapproved".to_vec(),
+    };
+    assert!(
+        broker
+            .execute(Uuid::new_v4(), &grant(d.path().to_owned()), None, request)
+            .await
+            .is_err()
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn approval_digest_and_secret_destination_are_exact() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open(d.path().join("db")).unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let broker = EffectBroker {
+        store: &store,
+        adapter: Spy(calls.clone()),
+    };
+    let g = grant(d.path().to_owned());
+    let original = EffectRequest::Network {
+        destination: "api.example.com".into(),
+        payload: b"one".to_vec(),
+    };
+    let approval = Approval::for_request(
+        g.task_id,
+        g.id,
+        &original,
+        Utc::now() + Duration::minutes(1),
+    )
+    .unwrap();
+    let mutated = EffectRequest::Network {
+        destination: "api.example.com".into(),
+        payload: b"two".to_vec(),
+    };
+    assert!(
+        broker
+            .execute(Uuid::new_v4(), &g, Some(&approval), mutated)
+            .await
+            .is_err()
+    );
+    let secret = EffectRequest::Secret {
+        name: "TOKEN".into(),
+        destination: "api.example.com".into(),
+    };
+    let approval =
+        Approval::for_request(g.task_id, g.id, &secret, Utc::now() + Duration::minutes(1)).unwrap();
+    let redirected = EffectRequest::Secret {
+        name: "TOKEN".into(),
+        destination: "evil.example".into(),
+    };
+    assert!(
+        broker
+            .execute(Uuid::new_v4(), &g, Some(&approval), redirected)
+            .await
+            .is_err()
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}

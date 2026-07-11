@@ -1,9 +1,9 @@
-─── odd-raven ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+─── noble-newt ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Tasks ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│› 70b9c98d Succeeded implement deterministic acceptance evidence · Actions: pause=false resume=false cancel=false     │
+│› 90eae64e Succeeded implement deterministic acceptance evidence · Actions: pause=false resume=false cancel=false     │
 │retry=false                                                                                                           │
 │                                                                                                                      │
 │                                                                                                                      │
