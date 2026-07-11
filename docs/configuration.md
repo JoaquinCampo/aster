@@ -1,6 +1,6 @@
 # Configuration
 
-Configuration is TOML parsed into schema-validated canonical types. Layering is defaults → user → project; later layers override known scalar fields. Instruction discovery separately supports `.agents` and `.claude` compatibility with `.claude` preferred for equivalent conflicts. See `config-context-memory.md` for implemented details and fixtures.
+Configuration is TOML parsed into schema-validated canonical types. Schema version 2 is current. Version 1 documents are migrated sequentially and idempotently to version 2 before validation; missing, malformed, obsolete, and future versions are rejected for complete documents. Layering is defaults → user → project; later layers override known scalar fields. Instruction discovery separately supports `.agents` and `.claude` compatibility with `.claude` preferred for equivalent conflicts. See `config-context-memory.md` for implemented details and fixtures.
 
 ## Safety contract
 

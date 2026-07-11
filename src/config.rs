@@ -7,6 +7,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub const CURRENT_CONFIG_VERSION: u32 = 2;
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
@@ -91,8 +93,12 @@ struct MemoryPatch {
 }
 impl Config {
     pub fn validate(&self) -> Result<()> {
-        if self.version != 1 {
-            bail!("unsupported config version {}", self.version)
+        if self.version != CURRENT_CONFIG_VERSION {
+            bail!(
+                "unsupported config version {} (current {})",
+                self.version,
+                CURRENT_CONFIG_VERSION
+            )
         }
         let sum: u32 = self.context.category_tokens.values().sum();
         if sum > self.context.total_tokens {
@@ -150,7 +156,9 @@ impl ConfigDocument {
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         let bytes = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
-        let config: Config = toml::from_str(std::str::from_utf8(&bytes)?)?;
+        let text = std::str::from_utf8(&bytes)?;
+        let migrated = migrate(text)?;
+        let config: Config = toml::from_str(&migrated)?;
         config.validate()?;
         Ok(Self {
             path,
@@ -228,15 +236,61 @@ impl ConfigDocument {
         Ok(())
     }
 }
+pub type ConfigService = ConfigDocument;
+
+/// Migrates a document one released schema at a time. Migration operates on
+/// TOML values so fields unknown to this binary survive semantic round trips.
+pub fn migrate(input: &str) -> Result<String> {
+    let mut value: toml::Value = toml::from_str(input).context("parse configuration")?;
+    let table = value
+        .as_table_mut()
+        .context("configuration root must be a table")?;
+    let mut version = table
+        .get("version")
+        .and_then(toml::Value::as_integer)
+        .context("configuration version must be an integer")?;
+    if version < 1 {
+        bail!("unsupported config version {version}")
+    }
+    if version > i64::from(CURRENT_CONFIG_VERSION) {
+        bail!("unsupported future config version {version}")
+    }
+    while version < i64::from(CURRENT_CONFIG_VERSION) {
+        match version {
+            1 => {
+                // v2 makes lifecycle explicit while retaining v1 behavior.
+                table.entry("lifecycle").or_insert_with(|| {
+                    let mut domain = toml::map::Map::new();
+                    domain.insert("enabled".into(), toml::Value::Boolean(false));
+                    toml::Value::Table(domain)
+                });
+                version = 2;
+                table.insert("version".into(), toml::Value::Integer(version));
+            }
+            _ => bail!("no migration from config version {version}"),
+        }
+    }
+    Ok(toml::to_string_pretty(&value)?)
+}
+
 pub fn load_layered(paths: &[PathBuf]) -> Result<Config> {
     let mut out = Config {
-        version: 1,
+        version: CURRENT_CONFIG_VERSION,
         ..Config::default()
     };
     for p in paths {
         if p.exists() {
             let bytes = fs::read(p).with_context(|| format!("read {}", p.display()))?;
-            let patch: ConfigPatch = toml::from_str(std::str::from_utf8(&bytes)?)?;
+            let text = std::str::from_utf8(&bytes)?;
+            let migrated = if toml::from_str::<toml::Value>(text)?
+                .get("version")
+                .is_some()
+            {
+                migrate(text)?
+            } else {
+                text.to_owned()
+            };
+            let patch: ConfigPatch = toml::from_str(&migrated)?;
             out.apply(patch);
         }
     }

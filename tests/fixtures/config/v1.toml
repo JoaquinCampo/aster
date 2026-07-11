@@ -1,0 +1,6 @@
+version = 1
+future = "preserved"
+[context]
+total_tokens = 4096
+[memory]
+enabled = true
