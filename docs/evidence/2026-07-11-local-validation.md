@@ -1,8 +1,10 @@
 # Local validation evidence — 2026-07-11
 
-Commit under validation: `d134277` plus the final-gate candidate changes (record the resulting commit SHA after commit).
+Commit under validation: `764220b` (final documentation-only evidence commit follows).
 
-The final-gate audit found that `d134277` depended on an untracked sibling checkout for Pi packages: hosted run [`29166356700`](https://github.com/JoaquinCampo/aster/actions/runs/29166356700) failed both Linux and native `Darwin-arm64` jobs at `pi_gateway` package discovery. The candidate now pins Pi 0.73.0 in `package-lock.json`, installs it with lifecycle scripts disabled in CI/clean-checkout validation, and resolves it from this repository. This was a local packaging defect, not an external platform blocker.
+The final-gate audit found that `d134277` depended on an untracked sibling checkout for Pi packages: hosted run [`29166356700`](https://github.com/JoaquinCampo/aster/actions/runs/29166356700) failed both Linux and native `Darwin-arm64` jobs at `pi_gateway` package discovery. Commit `4b9c9fb` pins Pi 0.73.0 in `package-lock.json`, installs it with lifecycle scripts disabled in CI/clean-checkout validation, and resolves it from this repository. This was a local packaging defect, not an external platform blocker.
+
+Post-fix hosted run [`29166550536`](https://github.com/JoaquinCampo/aster/actions/runs/29166550536) passed the full Linux quality/security/clean-checkout job and native macOS arm64 locked test, release build, binary smoke, and artifact upload jobs.
 
 ## Rust quality gates
 
