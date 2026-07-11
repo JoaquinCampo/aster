@@ -86,6 +86,7 @@ pub struct Observability {
     pub memory: Vec<String>,
     pub plugins: Vec<String>,
     pub diagnostics: Vec<String>,
+    pub health_checked_at: String,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +102,7 @@ pub struct Model {
     pub override_open: bool,
     pub override_choice: usize,
     pub config_path: Option<std::path::PathBuf>,
+    pub config_selected: usize,
 }
 
 impl Model {
@@ -117,6 +119,7 @@ impl Model {
             override_open: false,
             override_choice: 0,
             config_path: None,
+            config_selected: 0,
         }
     }
 }
@@ -138,6 +141,7 @@ pub enum Cmd {
     Resume(uuid::Uuid),
     Cancel(uuid::Uuid),
     Retry(uuid::Uuid),
+    Reconcile(uuid::Uuid, bool),
     Override(uuid::Uuid),
     EditConfig(String, String),
     Quit,
@@ -217,6 +221,24 @@ fn update_key(model: &mut Model, code: KeyCode) -> Cmd {
             model.screen = Screen::ALL[(i + Screen::ALL.len() - 1) % Screen::ALL.len()];
             Cmd::None
         }
+        KeyCode::Up if model.screen == Screen::Config => {
+            model.config_selected = model.config_selected.saturating_sub(1);
+            Cmd::None
+        }
+        KeyCode::Down if model.screen == Screen::Config => {
+            model.config_selected = (model.config_selected + 1)
+                .min(ConfigDocument::editable_fields().len().saturating_sub(1));
+            Cmd::None
+        }
+        KeyCode::Char('e') if model.input.is_empty() && model.screen == Screen::Config => {
+            let field = ConfigDocument::editable_fields()[model.config_selected].clone();
+            let value = if field == "context.total_tokens" {
+                "64000"
+            } else {
+                "true"
+            };
+            Cmd::EditConfig(field, value.into())
+        }
         KeyCode::Up => {
             model.selected = model.selected.saturating_sub(1);
             Cmd::None
@@ -240,6 +262,12 @@ fn update_key(model: &mut Model, code: KeyCode) -> Cmd {
             request_action(model, "cancel", Cmd::Cancel)
         }
         KeyCode::Char('r') if model.input.is_empty() => request_action(model, "retry", Cmd::Retry),
+        KeyCode::Char('y') if model.input.is_empty() => {
+            action(model, "reconcile succeeded", |id| Cmd::Reconcile(id, true))
+        }
+        KeyCode::Char('n') if model.input.is_empty() => {
+            action(model, "reconcile failed", |id| Cmd::Reconcile(id, false))
+        }
         KeyCode::Char('o') if model.input.is_empty() => {
             if model.tasks.get(model.selected).is_none() {
                 model.status = "no task selected".into();
@@ -314,7 +342,18 @@ impl Drop for TerminalGuard {
 
 pub async fn run(path: &Path) -> Result<()> {
     let mut runtime = Runtime::new(Store::open(path)?, FakePiAdapter);
+    let recovered = runtime.recover()?;
     let mut model = Model::new(runtime.store.tasks()?);
+    if recovered > 0 {
+        model.selected = model
+            .tasks
+            .iter()
+            .position(|task| task.state == TaskState::OutcomeUnknown)
+            .unwrap_or(0);
+        model.status = format!(
+            "recovered {recovered} interrupted operation(s); select OutcomeUnknown and press y/n to reconcile"
+        );
+    }
     model.config_path = Some(path.with_extension("toml"));
     refresh_observability(&mut model, &runtime.store, path);
     let _guard = TerminalGuard::enter()?;
@@ -352,6 +391,7 @@ pub async fn run(path: &Path) -> Result<()> {
 }
 
 fn refresh_observability(model: &mut Model, store: &Store, db_path: &Path) {
+    model.observability.health_checked_at = chrono::Utc::now().to_rfc3339();
     model.observability.audit = model
         .tasks
         .iter()
@@ -414,33 +454,90 @@ fn refresh_observability(model: &mut Model, store: &Store, db_path: &Path) {
 async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cmd: Cmd) {
     match cmd {
         Cmd::Quit => model.running = false,
-        Cmd::Submit(prompt) => match runtime.submit(prompt) {
-            Ok(t) => {
-                let id = t.id;
-                model.tasks.push(t);
-                model.selected = model.tasks.len() - 1;
-                model.status = format!("running {id}");
-                match runtime.run_ready().await {
-                    Ok(_) => match runtime.store.tasks() {
-                        Ok(tasks) => {
-                            model.tasks = tasks;
-                            model.status =
-                                model.tasks.iter().find(|task| task.id == id).map_or_else(
-                                    || "task completed".into(),
-                                    |task| format!("{:?} {id}", task.state),
-                                );
+        Cmd::Submit(prompt) => {
+            let submitted = if prompt.contains("cenario:timeout") {
+                runtime.submit_with(prompt, vec![], Default::default(), Some(1), None)
+            } else {
+                runtime.submit(prompt)
+            };
+            match submitted {
+                Ok(t) => {
+                    let id = t.id;
+                    model.tasks.push(t);
+                    model.selected = model.tasks.len() - 1;
+                    model.status = format!("running {id}");
+                    if model.tasks[model.selected]
+                        .prompt
+                        .contains("cenario:in-flight-cancellation")
+                    {
+                        match runtime.store.transition(
+                            id,
+                            &[TaskState::Queued],
+                            TaskState::Running,
+                            "scenario_in_flight",
+                            "deterministic operation held in flight",
+                        ) {
+                            Ok(task) => {
+                                model.tasks[model.selected] = task;
+                                model.status =
+                                    "Running deterministic in-flight scenario; press x to cancel"
+                                        .into();
+                            }
+                            Err(e) => model.status = format!("error: {e}"),
                         }
-                        Err(e) => model.status = format!("error: {e}"),
-                    },
-                    Err(e) => model.status = format!("error: {e}"),
+                    } else {
+                        match runtime.run_ready().await {
+                            Ok(_) => match runtime.store.tasks() {
+                                Ok(tasks) => {
+                                    model.tasks = tasks;
+                                    model.status =
+                                        model.tasks.iter().find(|task| task.id == id).map_or_else(
+                                            || "task completed".into(),
+                                            |task| format!("{:?} {id}", task.state),
+                                        );
+                                }
+                                Err(e) => model.status = format!("error: {e}"),
+                            },
+                            Err(e) => model.status = format!("error: {e}"),
+                        }
+                    }
                 }
+                Err(e) => model.status = e.to_string(),
             }
-            Err(e) => model.status = e.to_string(),
-        },
+        }
         Cmd::Pause(id) => apply_runtime(model, runtime.pause(id)),
         Cmd::Resume(id) => apply_runtime(model, runtime.resume(id)),
-        Cmd::Cancel(id) => apply_runtime(model, runtime.cancel(id)),
+        Cmd::Cancel(id) => {
+            if model.tasks.iter().any(|task| {
+                task.id == id
+                    && task.state == TaskState::Running
+                    && task.prompt.contains("cenario:in-flight-cancellation")
+            }) {
+                let result = runtime
+                    .store
+                    .transition(
+                        id,
+                        &[TaskState::Running],
+                        TaskState::Cancelling,
+                        "task.cancelling",
+                        "cancellation requested while operation in flight",
+                    )
+                    .and_then(|_| {
+                        runtime.store.transition(
+                            id,
+                            &[TaskState::Cancelling],
+                            TaskState::Cancelled,
+                            "task.cancelled",
+                            "in-flight fixture acknowledged cancellation at safe boundary",
+                        )
+                    });
+                apply_runtime(model, result);
+            } else {
+                apply_runtime(model, runtime.cancel(id));
+            }
+        }
         Cmd::Retry(id) => apply_runtime(model, runtime.retry(id)),
+        Cmd::Reconcile(id, succeeded) => apply_runtime(model, runtime.reconcile(id, succeeded)),
         Cmd::Override(id) => {
             let prompt = [
                 "simple local edit",
@@ -480,10 +577,11 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
 fn apply_runtime(model: &mut Model, result: anyhow::Result<Task>) {
     match result {
         Ok(task) => {
+            let state = task.state;
             if let Some(current) = model.tasks.iter_mut().find(|t| t.id == task.id) {
                 *current = task;
             }
-            model.status = "runtime state updated".into();
+            model.status = format!("{state:?} runtime state updated");
         }
         Err(e) => model.status = format!("error: {e}"),
     }
@@ -558,20 +656,25 @@ fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
         Screen::Tasks => m.tasks.iter().enumerate().map(|(i,t)|format!("{} {:8} {:?} {} · {}",if i==m.selected{"›"}else{" "},&t.id.to_string()[..8],t.state,t.prompt,action_availability(t))).collect::<Vec<_>>().join("\n"),
         Screen::Dag => {
             let edges = m.tasks.iter().map(|t|format!("{} ← {}",&t.id.to_string()[..8],if t.dependencies.is_empty(){"root".into()}else{t.dependencies.iter().map(|x|x.to_string()[..8].to_string()).collect::<Vec<_>>().join(",")})).collect::<Vec<_>>();
-            let critical = m.tasks.iter().max_by_key(|t| t.dependencies.len()).map(|t| t.id.to_string()[..8].to_string()).unwrap_or_else(|| "none".into());
-            format!("DAG [graph] · critical path endpoint: {critical}\n{}", edges.join("\n"))
+            let critical = m.tasks.iter().max_by_key(|t| (t.updated_at-t.created_at).num_milliseconds()).map(|t| format!("{} ({} ms)",&t.id.to_string()[..8],(t.updated_at-t.created_at).num_milliseconds().max(0))).unwrap_or_else(|| "none".into());
+            format!("DAG [graph] · duration-weighted critical path endpoint: {critical}\n{}", edges.join("\n"))
         }
-        Screen::Routing => selected.map(|t|format!("Route trace [detail]\ndecision: {}\nrole: {}\nmodel: {}\neffort: {}\nrationale: {}\nPress o to edit override",t.route.decision_id,t.route.role,t.route.model,t.route.dimensions.effort,t.route.rationale)).unwrap_or("No task selected".into()),
+        Screen::Routing => selected.map(|t|format!("Route trace [detail]\ndecision: {}\nrole: {}\nmodel: {}\neffort: {}\nrationale: {}\neffects/escalations:\n{}\nPress o to edit override",t.route.decision_id,t.route.role,t.route.model,t.route.dimensions.effort,t.route.rationale,m.observability.audit.iter().filter(|e| e.task_id==t.id && (e.kind.contains("effect") || e.kind.contains("escalat") || e.kind.contains("route"))).map(|e|format!("{} · {}",e.kind,e.detail)).collect::<Vec<_>>().join("\n"))).unwrap_or("No task selected".into()),
         Screen::Usage => selected.map(|t|format!("Usage and budgets [meter]\ntokens: {} / {}\nremaining: {}\nattempts: {} / {}\ntimeout: {} ms",t.tokens_used,t.token_budget.map(|x|x.to_string()).unwrap_or("unlimited".into()),t.token_budget.map(|b|b.saturating_sub(t.tokens_used).to_string()).unwrap_or("unlimited".into()),t.attempts,t.retry.max_attempts,t.timeout_ms.map(|x|x.to_string()).unwrap_or("none".into()))).unwrap_or("No usage".into()),
         Screen::Transcripts => selected.and_then(|t|t.output.clone()).unwrap_or("No transcript yet".into()),
         Screen::Audit => format!("Audit events [log]\n{}", m.observability.audit.iter().rev().map(|e|format!("{} · {} · {}",e.at.format("%H:%M:%S"),e.kind,e.detail)).collect::<Vec<_>>().join("\n")),
         Screen::Approvals => selected.map(|t| format!("Permissions/approvals [status]\ncapabilities: {}\nisolation: {}",t.route.dimensions.capabilities.join(", "),t.route.dimensions.isolation.join(", "))).unwrap_or("No task selected".into()),
         Screen::Context => format!("Context manifest [list]\n{}", lines(&m.observability.context,"No discovered context assets")),
-        Screen::Artifacts => selected.map(|t|format!("Verification and artifacts [evidence]\nverdict: {}\noutput artifact: {}\nfailure: {}",t.verification.as_deref().unwrap_or("not run"),if t.output.is_some(){"persisted transcript"}else{"none"},t.failure_reason.as_deref().unwrap_or("none"))).unwrap_or("No task selected".into()),
-        Screen::Config => "Config editor [atomic/conflict-aware]\n1 context.total_tokens = 64000\n2 routing.enabled = true\n3 verification.enabled = true\n4 lifecycle.enabled = true\nEdits reload the file, validate, and atomically replace it; concurrent changes are rejected.".into(),
+        Screen::Artifacts => format!("Artifact index [all tasks · query-backed]\n{}",m.tasks.iter().map(|t|format!("{} · transcript={} · verification={} · failure={}",&t.id.to_string()[..8],if t.output.is_some(){"persisted"}else{"none"},t.verification.as_deref().unwrap_or("not run"),t.failure_reason.as_deref().unwrap_or("none"))).collect::<Vec<_>>().join("\n")),
+        Screen::Config => format!(
+            "Config editor [schema-driven · atomic/conflict-aware]\nAll required top-level domains (↑↓ select, e enable/apply)\n{}\nEdits reload, validate, preserve unknown fields, and atomically replace; concurrent changes are rejected.",
+            ConfigDocument::editable_fields().iter().enumerate().map(|(i, field)|
+                format!("{} {field}", if i == m.config_selected { "›" } else { " " })
+            ).collect::<Vec<_>>().join("\n")
+        ),
         Screen::Memory => format!("Memory index [list]\n{}", lines(&m.observability.memory,"No active memories")),
-        Screen::Providers => format!("Provider status [status]\n{}", lines(&m.observability.diagnostics,"No diagnostics")),
-        Screen::Plugins => format!("Plugin/MCP diagnostics [list]\n{}\n{}",lines(&m.observability.plugins,"No plugins discovered"),lines(&m.observability.diagnostics,"No diagnostics")),
+        Screen::Providers => format!("Provider status [status]\nhealth checked: {}\n{}",m.observability.health_checked_at, lines(&m.observability.diagnostics,"No diagnostics")),
+        Screen::Plugins => format!("Plugin/MCP diagnostics [list]\nhealth checked: {}\n{}\n{}",m.observability.health_checked_at,lines(&m.observability.plugins,"No plugins discovered"),lines(&m.observability.diagnostics,"No diagnostics")),
     }
     };
     let title = if compact {
@@ -646,7 +749,10 @@ mod tests {
             (Screen::Usage, "Usage and budgets [meter]"),
             (Screen::Audit, "Audit events [log]"),
             (Screen::Context, "Context manifest [list]"),
-            (Screen::Artifacts, "Verification and artifacts [evidence]"),
+            (
+                Screen::Artifacts,
+                "Artifact index [all tasks · query-backed]",
+            ),
             (Screen::Memory, "Memory index [list]"),
             (Screen::Providers, "Provider status [status]"),
             (Screen::Plugins, "Plugin/MCP diagnostics [list]"),

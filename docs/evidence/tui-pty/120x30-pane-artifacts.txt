@@ -1,15 +1,15 @@
-─── lazy-newt ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+─── odd-raven ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Audit ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │Audit events [log]                                                                                                    │
-│20:01:27 · route.overridden · operator changed execution route                                                        │
-│20:01:23 · operation.completed · 2f97e2f2-90d6-4185-ba4e-5175b3b95284: Succeeded                                      │
-│20:01:23 · operation.started · 2f97e2f2-90d6-4185-ba4e-5175b3b95284                                                   │
-│20:01:23 · operation.intent · 2f97e2f2-90d6-4185-ba4e-5175b3b95284                                                    │
-│20:01:23 · task.queued · Task durably queued                                                                          │
-│20:01:23 · route.selected · deterministic policy; cheapest eligible profile meeting hard quality 75; no persisted     │
+│20:32:49 · route.overridden · operator changed execution route                                                        │
+│20:32:46 · operation.completed · d92b43f1-faab-4c94-9e8f-d107910ca1fc: Succeeded                                      │
+│20:32:46 · operation.started · d92b43f1-faab-4c94-9e8f-d107910ca1fc                                                   │
+│20:32:46 · operation.intent · d92b43f1-faab-4c94-9e8f-d107910ca1fc                                                    │
+│20:32:46 · task.queued · Task durably queued                                                                          │
+│20:32:46 · route.selected · deterministic policy; cheapest eligible profile meeting hard quality 75; no persisted     │
 │outcome history used                                                                                                  │
 │                                                                                                                      │
 │                                                                                                                      │

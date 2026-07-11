@@ -48,6 +48,45 @@ done
 tui-use type "q"
 tui-use wait >/dev/null
 
+# Deterministic release-critical failures are driven through the real PTY.
+tui-use start --label aster-failures --cols 120 --rows 30 --cwd "$ROOT" "$BIN --state $DB" >/dev/null
+expect "Succeeded"
+tui-use type "scenario:timeout"
+tui-use press enter
+expect "TimedOut"
+capture 120x30-timeout
+tui-use type "scenario:permission-denied"
+tui-use press enter
+expect "Failed"
+capture 120x30-permission-denied
+tui-use type "scenario:in-flight-cancellation"
+tui-use press enter
+expect "press x to cancel"
+capture 120x30-cancellation-in-flight
+tui-use type "x"
+expect "Cancelled"
+capture 120x30-cancelled
+tui-use type "q"
+tui-use wait >/dev/null
+
+# The provider exits after a durable operation start. Restart invokes recovery,
+# exposes OutcomeUnknown, and requires an explicit reconciled outcome.
+set +e
+tui-use start --label aster-crash --cols 120 --rows 30 --cwd "$ROOT" "$BIN --state $DB" >/dev/null
+tui-use wait --text "Submit task" >/dev/null
+tui-use type "scenario:injected-crash"
+tui-use press enter
+tui-use wait >/dev/null
+set -e
+tui-use start --label aster-recovery --cols 120 --rows 30 --cwd "$ROOT" "$BIN --state $DB" >/dev/null
+expect "OutcomeUnknown"
+capture 120x30-injected-crash-recovery
+tui-use type "y"
+expect "Succeeded"
+capture 120x30-outcome-reconciled
+tui-use type "q"
+tui-use wait >/dev/null
+
 # Compact restart: prove durable task recovery and inspect additional query panes.
 tui-use start --label aster-compact --cols 60 --rows 16 --cwd "$ROOT" "$BIN --state $DB" >/dev/null
 expect "Succeeded"

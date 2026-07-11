@@ -313,6 +313,15 @@ pub struct FakePiAdapter;
 #[async_trait]
 impl PiAdapter for FakePiAdapter {
     async fn execute(&self, prompt: &str, route: &Route) -> anyhow::Result<ExecutionResult> {
+        if prompt.contains("cenario:timeout") {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        if prompt.contains("cenario:permission-denied") {
+            anyhow::bail!("permission denied by deterministic effect broker fixture")
+        }
+        if prompt.contains("cenario:injected-crash") {
+            std::process::exit(86);
+        }
         let output = if prompt.starts_with("deterministic checker")
             || prompt.starts_with("independent checker")
         {

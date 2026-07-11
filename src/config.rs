@@ -158,14 +158,56 @@ impl ConfigDocument {
             baseline_hash: hash(&bytes),
         })
     }
+    pub fn editable_fields() -> Vec<String> {
+        let mut fields = vec!["context.total_tokens".into(), "memory.enabled".into()];
+        for domain in [
+            "providers",
+            "models",
+            "roles",
+            "routing",
+            "budgets",
+            "permissions",
+            "tools_mcp",
+            "skills_rules",
+            "hooks_plugins",
+            "persistence",
+            "tui",
+            "verification",
+            "lifecycle",
+        ] {
+            fields.push(format!("{domain}.enabled"));
+        }
+        fields
+    }
     pub fn edit_required(&mut self, field: &str, value: &str) -> Result<()> {
         match field {
             "context.total_tokens" => self.config.context.total_tokens = value.parse()?,
             "memory.enabled" => self.config.memory.enabled = value.parse()?,
-            "routing.enabled" => self.config.routing.enabled = value.parse()?,
-            "verification.enabled" => self.config.verification.enabled = value.parse()?,
-            "lifecycle.enabled" => self.config.lifecycle.enabled = value.parse()?,
-            _ => bail!("field is not editable in the TUI: {field}"),
+            _ => {
+                let (domain, property) = field
+                    .split_once('.')
+                    .ok_or_else(|| anyhow::anyhow!("invalid configuration field: {field}"))?;
+                if property != "enabled" {
+                    bail!("field is not editable in the TUI: {field}")
+                }
+                let target = match domain {
+                    "providers" => &mut self.config.providers,
+                    "models" => &mut self.config.models,
+                    "roles" => &mut self.config.roles,
+                    "routing" => &mut self.config.routing,
+                    "budgets" => &mut self.config.budgets,
+                    "permissions" => &mut self.config.permissions,
+                    "tools_mcp" => &mut self.config.tools_mcp,
+                    "skills_rules" => &mut self.config.skills_rules,
+                    "hooks_plugins" => &mut self.config.hooks_plugins,
+                    "persistence" => &mut self.config.persistence,
+                    "tui" => &mut self.config.tui,
+                    "verification" => &mut self.config.verification,
+                    "lifecycle" => &mut self.config.lifecycle,
+                    _ => bail!("field is not editable in the TUI: {field}"),
+                };
+                target.enabled = value.parse()?;
+            }
         }
         self.config.validate()
     }

@@ -1,19 +1,19 @@
-─── odd-raven ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+─── tangy-finch ────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Routing/Overrides ───────────────────────────────────────────────────────────────────────────────────────────────────┐
-│Route trace [detail]                                                                                                  │
-│decision: v1:orchestrator:fake-luna:50:68                                                                             │
-│role: orchestrator                                                                                                    │
-│model: fake-luna                                                                                                      │
-│effort: low                                                                                                           │
-│rationale: deterministic policy; cheapest eligible profile meeting hard quality 50; no persisted outcome history used │
-│effects/escalations:                                                                                                  │
-│route.selected · deterministic policy; cheapest eligible profile meeting hard quality 75; no persisted outcome history│
-│used                                                                                                                  │
-│route.overridden · operator changed execution route                                                                   │
-│Press o to edit override                                                                                              │
+┌ Conversation ────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Conversation [input]                                                                                                  │
+│Type a task and press Enter. Runtime events remain non-blocking.                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
@@ -27,6 +27,6 @@
 │                                                                                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│>   │ Succeeded runtime state updated  │ Tab screens · ↑↓ select · p pause · s resume · x cancel · r retry · o overrid│
+│>   │ Cancelled runtime state updated  │ Tab screens · ↑↓ select · p pause · s resume · x cancel · r retry · o overrid│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-─── running | cursor(25,14) | fullscreen:true | title:"" ───────────────────────────────────────────────────────────────
+─── running | cursor(119,28) | fullscreen:true | title:"" ──────────────────────────────────────────────────────────────

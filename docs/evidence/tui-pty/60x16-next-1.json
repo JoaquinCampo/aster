@@ -1,9 +1,9 @@
 {
-  "session_id": "rapid-jackal",
-  "screen": "┌ ASTER ───────────────────────────────────────────────────┐\n│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│\n└──────────────────────────────────────────────────────────┘\n┌ Tasks · compact ─────────────────────────────────────────┐\n│› d681607a Succeeded implement deterministic acceptance   │\n│evidence · Actions: pause=false resume=false cancel=false │\n│retry=false                                               │\n│                                                          │\n│                                                          │\n│                                                          │\n│                                                          │\n│                                                          │\n└──────────────────────────────────────────────────────────┘\n┌──────────────────────────────────────────────────────────┐\n│>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│\n└──────────────────────────────────────────────────────────┘",
+  "session_id": "grand-okapi",
+  "screen": "┌ ASTER ───────────────────────────────────────────────────┐\n│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│\n└──────────────────────────────────────────────────────────┘\n┌ Tasks · compact ─────────────────────────────────────────┐\n│› 70b9c98d Succeeded implement deterministic acceptance   │\n│evidence · Actions: pause=false resume=false cancel=false │\n│retry=false                                               │\n│  f1e3d24f TimedOut cenario:timeout · Actions: pause=false│\n│resume=false cancel=false retry=true                      │\n│  eb24b829 Failed cenario:permission-denied · Actions:    │\n│pause=false resume=false cancel=false retry=true          │\n│  0ba9807e Cancelled cenario:in-flight-cancellation ·     │\n└──────────────────────────────────────────────────────────┘\n┌──────────────────────────────────────────────────────────┐\n│>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│\n└──────────────────────────────────────────────────────────┘",
   "cursor": {
-    "x": 14,
-    "y": 6
+    "x": 54,
+    "y": 11
   },
   "changed": false,
   "status": "running",

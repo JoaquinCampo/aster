@@ -1,18 +1,18 @@
-─── rapid-jackal ───────────────────────────────────────────
+─── grand-okapi ────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│
 └──────────────────────────────────────────────────────────┘
 ┌ Tasks · compact ─────────────────────────────────────────┐
-│› d681607a Succeeded implement deterministic acceptance   │
+│› 70b9c98d Succeeded implement deterministic acceptance   │
 │evidence · Actions: pause=false resume=false cancel=false │
 │retry=false                                               │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
+│  f1e3d24f TimedOut cenario:timeout · Actions: pause=false│
+│resume=false cancel=false retry=true                      │
+│  eb24b829 Failed cenario:permission-denied · Actions:    │
+│pause=false resume=false cancel=false retry=true          │
+│  0ba9807e Cancelled cenario:in-flight-cancellation ·     │
 └──────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────┐
 │>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│
 └──────────────────────────────────────────────────────────┘
-─── running | cursor(14,6) | fullscreen:true | title:"" ────
+─── running | cursor(54,11) | fullscreen:true | title:"" ───
