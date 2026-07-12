@@ -15,19 +15,19 @@ pub struct Config {
     pub version: u32,
     pub context: ContextConfig,
     pub memory: MemoryConfig,
-    pub providers: DomainConfig,
-    pub models: DomainConfig,
-    pub roles: DomainConfig,
-    pub routing: DomainConfig,
-    pub budgets: DomainConfig,
-    pub permissions: DomainConfig,
-    pub tools_mcp: DomainConfig,
-    pub skills_rules: DomainConfig,
-    pub hooks_plugins: DomainConfig,
-    pub persistence: DomainConfig,
-    pub tui: DomainConfig,
-    pub verification: DomainConfig,
-    pub lifecycle: DomainConfig,
+    pub providers: ProvidersConfig,
+    pub models: ModelsConfig,
+    pub roles: RolesConfig,
+    pub routing: RoutingConfig,
+    pub budgets: BudgetsConfig,
+    pub permissions: PermissionsConfig,
+    pub tools_mcp: ToolsMcpConfig,
+    pub skills_rules: SkillsRulesConfig,
+    pub hooks_plugins: HooksPluginsConfig,
+    pub persistence: PersistenceConfig,
+    pub tui: TuiConfig,
+    pub verification: VerificationConfig,
+    pub lifecycle: LifecycleConfig,
     #[serde(flatten)]
     pub extensions: BTreeMap<String, toml::Value>,
 }
@@ -55,30 +55,57 @@ impl Default for MemoryConfig {
         Self { enabled: true }
     }
 }
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(default)]
-pub struct DomainConfig {
-    pub enabled: bool,
-    pub settings: BTreeMap<String, toml::Value>,
+macro_rules! domain_config {
+    ($name:ident { $($field:ident : $ty:ty = $default:expr),* $(,)? }) => {
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+        #[serde(default)]
+        pub struct $name {
+            pub enabled: bool,
+            $(pub $field: $ty,)*
+            #[serde(flatten)]
+            pub extensions: BTreeMap<String, toml::Value>,
+        }
+        impl Default for $name {
+            fn default() -> Self { Self { enabled: false, $($field: $default,)* extensions: BTreeMap::new() } }
+        }
+    };
 }
+
+domain_config!(ProvidersConfig { default_provider: Option<String> = None, auth_ref: Option<String> = None, endpoint: Option<String> = None });
+domain_config!(ModelsConfig { default_model: Option<String> = None, reasoning_effort: Option<String> = None, allow: Vec<String> = Vec::new() });
+domain_config!(RolesConfig { default_role: Option<String> = None, available: Vec<String> = Vec::new() });
+domain_config!(RoutingConfig { policy_path: Option<PathBuf> = None, fallback_provider: Option<String> = None, fallback_model: Option<String> = None });
+domain_config!(BudgetsConfig { token_budget: Option<u64> = None, timeout_ms: Option<u64> = None, cost_limit_usd: Option<f64> = None });
+domain_config!(PermissionsConfig { default_allow: bool = false, approval_ttl_secs: u64 = 300, policy_path: Option<PathBuf> = None });
+domain_config!(ToolsMcpConfig { servers: Vec<String> = Vec::new(), allow_tools: Vec<String> = Vec::new(), command_timeout_ms: u64 = 30_000 });
+domain_config!(SkillsRulesConfig { skill_paths: Vec<PathBuf> = Vec::new(), rule_paths: Vec<PathBuf> = Vec::new(), max_context_tokens: Option<u32> = None });
+domain_config!(HooksPluginsConfig { hook_paths: Vec<PathBuf> = Vec::new(), plugin_paths: Vec<PathBuf> = Vec::new(), fail_closed: bool = true });
+domain_config!(PersistenceConfig { database_path: Option<PathBuf> = None, memory_path: Option<PathBuf> = None, artifacts_path: Option<PathBuf> = None });
+domain_config!(TuiConfig {
+    refresh_ms: u64 = 250,
+    compact: bool = false,
+    color: bool = true
+});
+domain_config!(VerificationConfig { commands: Vec<String> = Vec::new(), require_clean_tree: bool = false, timeout_ms: u64 = 120_000 });
+domain_config!(LifecycleConfig { concurrency: usize = 1, retry_limit: u32 = 0, task_timeout_ms: Option<u64> = None, shutdown_grace_ms: u64 = 5_000 });
 #[derive(Debug, Clone, Default, Deserialize)]
 struct ConfigPatch {
     version: Option<u32>,
     context: Option<ContextPatch>,
     memory: Option<MemoryPatch>,
-    providers: Option<DomainConfig>,
-    models: Option<DomainConfig>,
-    roles: Option<DomainConfig>,
-    routing: Option<DomainConfig>,
-    budgets: Option<DomainConfig>,
-    permissions: Option<DomainConfig>,
-    tools_mcp: Option<DomainConfig>,
-    skills_rules: Option<DomainConfig>,
-    hooks_plugins: Option<DomainConfig>,
-    persistence: Option<DomainConfig>,
-    tui: Option<DomainConfig>,
-    verification: Option<DomainConfig>,
-    lifecycle: Option<DomainConfig>,
+    providers: Option<ProvidersConfig>,
+    models: Option<ModelsConfig>,
+    roles: Option<RolesConfig>,
+    routing: Option<RoutingConfig>,
+    budgets: Option<BudgetsConfig>,
+    permissions: Option<PermissionsConfig>,
+    tools_mcp: Option<ToolsMcpConfig>,
+    skills_rules: Option<SkillsRulesConfig>,
+    hooks_plugins: Option<HooksPluginsConfig>,
+    persistence: Option<PersistenceConfig>,
+    tui: Option<TuiConfig>,
+    verification: Option<VerificationConfig>,
+    lifecycle: Option<LifecycleConfig>,
     #[serde(flatten)]
     extensions: BTreeMap<String, toml::Value>,
 }
@@ -100,9 +127,47 @@ impl Config {
                 CURRENT_CONFIG_VERSION
             )
         }
+        if self.context.total_tokens == 0 {
+            bail!("context.total_tokens must be greater than zero")
+        }
         let sum: u32 = self.context.category_tokens.values().sum();
         if sum > self.context.total_tokens {
             bail!("category budgets exceed total context budget")
+        }
+        if self.lifecycle.concurrency == 0 {
+            bail!("lifecycle.concurrency must be greater than zero")
+        }
+        if self.tui.refresh_ms == 0
+            || self.verification.timeout_ms == 0
+            || self.tools_mcp.command_timeout_ms == 0
+        {
+            bail!("configured timeouts and refresh intervals must be greater than zero")
+        }
+        if let Some(limit) = self.budgets.cost_limit_usd
+            && (!limit.is_finite() || limit < 0.0)
+        {
+            bail!("budgets.cost_limit_usd must be finite and non-negative")
+        }
+        if let Some(auth_ref) = &self.providers.auth_ref {
+            let valid = auth_ref.starts_with("env:")
+                || auth_ref.starts_with("keychain:")
+                || auth_ref.starts_with("file:");
+            if !valid
+                || auth_ref
+                    .split_once(':')
+                    .is_none_or(|(_, value)| value.trim().is_empty())
+            {
+                bail!(
+                    "providers.auth_ref must be a non-empty env:, keychain:, or file: secret reference"
+                )
+            }
+        }
+        if self.providers.endpoint.as_deref().is_some_and(|endpoint| {
+            !(endpoint.starts_with("https://")
+                || endpoint.starts_with("http://localhost")
+                || endpoint.starts_with("http://127.0.0.1"))
+        }) {
+            bail!("providers.endpoint must use https (except loopback endpoints)")
         }
         Ok(())
     }
@@ -198,23 +263,23 @@ impl ConfigDocument {
                 if property != "enabled" {
                     bail!("field is not editable in the TUI: {field}")
                 }
-                let target = match domain {
-                    "providers" => &mut self.config.providers,
-                    "models" => &mut self.config.models,
-                    "roles" => &mut self.config.roles,
-                    "routing" => &mut self.config.routing,
-                    "budgets" => &mut self.config.budgets,
-                    "permissions" => &mut self.config.permissions,
-                    "tools_mcp" => &mut self.config.tools_mcp,
-                    "skills_rules" => &mut self.config.skills_rules,
-                    "hooks_plugins" => &mut self.config.hooks_plugins,
-                    "persistence" => &mut self.config.persistence,
-                    "tui" => &mut self.config.tui,
-                    "verification" => &mut self.config.verification,
-                    "lifecycle" => &mut self.config.lifecycle,
+                let enabled: bool = value.parse()?;
+                match domain {
+                    "providers" => self.config.providers.enabled = enabled,
+                    "models" => self.config.models.enabled = enabled,
+                    "roles" => self.config.roles.enabled = enabled,
+                    "routing" => self.config.routing.enabled = enabled,
+                    "budgets" => self.config.budgets.enabled = enabled,
+                    "permissions" => self.config.permissions.enabled = enabled,
+                    "tools_mcp" => self.config.tools_mcp.enabled = enabled,
+                    "skills_rules" => self.config.skills_rules.enabled = enabled,
+                    "hooks_plugins" => self.config.hooks_plugins.enabled = enabled,
+                    "persistence" => self.config.persistence.enabled = enabled,
+                    "tui" => self.config.tui.enabled = enabled,
+                    "verification" => self.config.verification.enabled = enabled,
+                    "lifecycle" => self.config.lifecycle.enabled = enabled,
                     _ => bail!("field is not editable in the TUI: {field}"),
-                };
-                target.enabled = value.parse()?;
+                }
             }
         }
         self.config.validate()

@@ -36,6 +36,50 @@ fn malformed_old_and_future_versions_are_rejected() {
 }
 
 #[test]
+fn typed_domains_validate_secrets_ranges_and_preserve_nested_unknowns() {
+    let valid = r#"version=2
+[providers]
+enabled=true
+auth_ref="env:XAI_API_KEY"
+future_provider_option="kept"
+[lifecycle]
+concurrency=4
+[tui]
+refresh_ms=10
+"#;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("typed.toml");
+    fs::write(&path, valid).unwrap();
+    let mut service = ConfigService::load(&path).unwrap();
+    assert_eq!(service.config.lifecycle.concurrency, 4);
+    assert_eq!(
+        service.config.providers.extensions["future_provider_option"].as_str(),
+        Some("kept")
+    );
+    service.save_atomic().unwrap();
+    assert!(
+        fs::read_to_string(&path)
+            .unwrap()
+            .contains("future_provider_option")
+    );
+
+    fs::write(&path, "version=2\n[providers]\nauth_ref='literal-secret'\n").unwrap();
+    assert!(
+        ConfigService::load(&path)
+            .unwrap_err()
+            .to_string()
+            .contains("secret reference")
+    );
+    fs::write(&path, "version=2\n[lifecycle]\nconcurrency=0\n").unwrap();
+    assert!(
+        ConfigService::load(&path)
+            .unwrap_err()
+            .to_string()
+            .contains("concurrency")
+    );
+}
+
+#[test]
 fn conflict_leaves_external_write_intact_and_no_temp_artifact() {
     let d = tempfile::tempdir().unwrap();
     let p = d.path().join("aster.toml");
