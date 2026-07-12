@@ -26,6 +26,9 @@ pub struct Runtime<A: PiAdapter> {
     router: Router,
     concurrency: usize,
     hooks: Option<Arc<dyn LifecycleHooks>>,
+    default_retry: RetryPolicy,
+    default_timeout_ms: Option<u64>,
+    default_token_budget: Option<u64>,
 }
 impl<A: PiAdapter> Runtime<A> {
     pub fn new(store: Store, adapter: A) -> Self {
@@ -35,7 +38,46 @@ impl<A: PiAdapter> Runtime<A> {
             router: Router::default(),
             concurrency: 4,
             hooks: None,
+            default_retry: RetryPolicy::default(),
+            default_timeout_ms: None,
+            default_token_budget: None,
         }
+    }
+    pub fn from_config(store: Store, adapter: A, config: &crate::config::Config) -> Result<Self> {
+        config.validate()?;
+        let router = if config.routing.enabled {
+            config
+                .routing
+                .policy_path
+                .as_ref()
+                .map(Router::from_policy_path)
+                .transpose()?
+                .unwrap_or_default()
+        } else {
+            Router::default()
+        };
+        Ok(Self {
+            store,
+            adapter,
+            router,
+            concurrency: config.lifecycle.concurrency,
+            hooks: None,
+            default_retry: RetryPolicy {
+                max_attempts: config.lifecycle.retry_limit.saturating_add(1),
+                ..RetryPolicy::default()
+            },
+            default_timeout_ms: config
+                .budgets
+                .timeout_ms
+                .or(config.lifecycle.task_timeout_ms),
+            default_token_budget: config.budgets.token_budget,
+        })
+    }
+    pub fn concurrency(&self) -> usize {
+        self.concurrency
+    }
+    pub fn router(&self) -> &Router {
+        &self.router
     }
     pub fn with_hooks(mut self, hooks: Arc<dyn LifecycleHooks>) -> Self {
         self.hooks = Some(hooks);
@@ -81,9 +123,9 @@ impl<A: PiAdapter> Runtime<A> {
             prompt,
             UserOverrides::default(),
             vec![],
-            RetryPolicy::default(),
-            None,
-            None,
+            self.default_retry.clone(),
+            self.default_timeout_ms,
+            self.default_token_budget,
         )
     }
     /// Queue durable background work without waiting for execution.

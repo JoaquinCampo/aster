@@ -1,8 +1,8 @@
 {
-  "session_id": "bold-bison",
-  "screen": "┌ ASTER ───────────────────────────────────────────────────┐\n│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│\n└──────────────────────────────────────────────────────────┘\n┌ Tasks · compact ─────────────────────────────────────────┐\n│› bacdcf83 Succeeded/Background implement deterministic   │\n│acceptance evidence · terminal=Some(Completed) · Actions: │\n│pause=false resume=false cancel=false retry=false         │\n│  bcb60df6 TimedOut/Background cenario:timeout ·          │\n│terminal=Some(TimeoutExceeded) · Actions: pause=false     │\n│resume=false cancel=false retry=true                      │\n│  9dd4d07c Failed/Background cenario:permission-denied ·  │\n│terminal=Some(ProviderFailed) · Actions: pause=false      │\n└──────────────────────────────────────────────────────────┘\n┌──────────────────────────────────────────────────────────┐\n│>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│\n└──────────────────────────────────────────────────────────┘",
+  "session_id": "lazy-python",
+  "screen": "┌ ASTER ───────────────────────────────────────────────────┐\n│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│\n└──────────────────────────────────────────────────────────┘\n┌ Tasks · compact ─────────────────────────────────────────┐\n│› 894ace2d Succeeded/Background implement deterministic   │\n│acceptance evidence · terminal=Some(Completed) · Actions: │\n│pause=false resume=false cancel=false retry=false         │\n│  180dfea4 Succeeded/Background cenario:approval ·        │\n│terminal=Some(Completed) · Actions: pause=false           │\n│resume=false cancel=false retry=false                     │\n│  28401174 TimedOut/Background cenario:timeout ·          │\n│terminal=Some(TimeoutExceeded) · Actions: pause=false     │\n└──────────────────────────────────────────────────────────┘\n┌──────────────────────────────────────────────────────────┐\n│>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│\n└──────────────────────────────────────────────────────────┘",
   "cursor": {
-    "x": 53,
+    "x": 54,
     "y": 11
   },
   "changed": false,

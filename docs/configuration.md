@@ -11,8 +11,10 @@ Configuration is TOML parsed into schema-validated canonical types. Schema versi
 * Keep roles independent from model and reasoning effort.
 * Treat filesystem, process, network, credentials, external services, and workspace/worktree isolation as separate dimensions.
 
-## Current coverage
+## Operational coverage
 
-Validated typed configuration and precedence tests exist for the implemented slice. The Config TUI screen offers representative keyboard edits for context budget and routing, verification, and lifecycle enablement. Each action reloads the document, applies a schema-validated semantic edit, preserves unknown fields, detects a stale baseline, and atomically replaces the file. Full editors for every BRIEF domain, migration UX, and comment/whitespace preservation are not yet complete. Do not hand-author settings based on aspirational fields in the BRIEF; only fields accepted by current types are operational.
+Every required domain has a typed schema: providers/models, roles, routing, budgets, permissions, tools/MCP, skills/rules, hooks/plugins, persistence paths, TUI, verification, and lifecycle/concurrency. Unknown keys are retained only in each schema's flattened `extensions` map. Nested layers merge recursively in defaults → user → project → local order, so a later scalar does not erase sibling values or unknown extensions.
 
-Before changing configuration, back up the file, validate with tests, and inspect the effective configuration and provenance. Never paste a resolved secret into bug reports or evidence.
+Start the application with `aster --state PATH --config PATH`. Configuration is validated before the store or runtime starts. The runtime consumes routing policy paths, token/time budgets, retry limits and concurrency; TUI startup consumes persistence database/memory paths and refresh timing. Provider endpoints must be HTTPS except loopback. Provider credentials are references of the form `env:NAME`, `keychain:NAME`, or `file:PATH`; literal credentials are rejected.
+
+The Config screen lists every editable schema leaf. Type `field=TOML_VALUE` and press Enter—for example `lifecycle.concurrency=4`, `models.allow=["grok-4"]`, or `providers.auth_ref="env:XAI_API_KEY"`. `e` enables a selected boolean domain. Each edit reloads the document, validates the complete candidate, preserves unknown fields, detects a stale baseline, and atomically replaces the file. Comments and whitespace are not contractual.

@@ -242,12 +242,12 @@ fn update_key(model: &mut Model, code: KeyCode) -> Cmd {
         }
         KeyCode::Char('e') if model.input.is_empty() && model.screen == Screen::Config => {
             let field = ConfigDocument::editable_fields()[model.config_selected].clone();
-            let value = if field == "context.total_tokens" {
-                "64000"
+            if field.ends_with(".enabled") || field == "memory.enabled" {
+                Cmd::EditConfig(field, "true".into())
             } else {
-                "true"
-            };
-            Cmd::EditConfig(field, value.into())
+                model.status = format!("type {field}=TOML_VALUE and press Enter");
+                Cmd::None
+            }
         }
         KeyCode::Up => {
             model.selected = model.selected.saturating_sub(1);
@@ -256,6 +256,16 @@ fn update_key(model: &mut Model, code: KeyCode) -> Cmd {
         KeyCode::Down => {
             model.selected = (model.selected + 1).min(model.tasks.len().saturating_sub(1));
             Cmd::None
+        }
+        KeyCode::Enter if !model.input.trim().is_empty() && model.screen == Screen::Config => {
+            let input = std::mem::take(&mut model.input);
+            match input.split_once('=') {
+                Some((field, value)) => Cmd::EditConfig(field.trim().into(), value.trim().into()),
+                None => {
+                    model.status = "config edit syntax: field=TOML_VALUE".into();
+                    Cmd::None
+                }
+            }
         }
         KeyCode::Enter if !model.input.trim().is_empty() && model.screen == Screen::Memory => {
             Cmd::Memory(std::mem::take(&mut model.input))
@@ -377,7 +387,24 @@ impl Drop for TerminalGuard {
 }
 
 pub async fn run(path: &Path) -> Result<()> {
-    let mut runtime = Runtime::new(Store::open(path)?, FakePiAdapter);
+    run_configured(path, &path.with_extension("toml")).await
+}
+
+pub async fn run_configured(path: &Path, config_path: &Path) -> Result<()> {
+    let config = if config_path.exists() {
+        ConfigDocument::load(config_path)?.config
+    } else {
+        crate::config::Config {
+            version: crate::config::CURRENT_CONFIG_VERSION,
+            ..Default::default()
+        }
+    };
+    let state_path = if config.persistence.enabled {
+        config.persistence.database_path.as_deref().unwrap_or(path)
+    } else {
+        path
+    };
+    let mut runtime = Runtime::from_config(Store::open(state_path)?, FakePiAdapter, &config)?;
     let recovered = runtime.recover()?;
     let mut model = Model::new(runtime.store.tasks()?);
     if recovered > 0 {
@@ -390,16 +417,25 @@ pub async fn run(path: &Path) -> Result<()> {
             "recovered {recovered} interrupted operation(s); select OutcomeUnknown and press y/n to reconcile"
         );
     }
-    model.config_path = Some(path.with_extension("toml"));
-    model.memory_path = path.to_path_buf();
-    refresh_observability(&mut model, &runtime.store, path);
+    model.config_path = Some(config_path.to_path_buf());
+    model.memory_path = if config.persistence.enabled {
+        config
+            .persistence
+            .memory_path
+            .clone()
+            .unwrap_or_else(|| state_path.to_path_buf())
+    } else {
+        state_path.to_path_buf()
+    };
+    refresh_observability(&mut model, &runtime.store, state_path);
     let _guard = TerminalGuard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     let (tx, rx) = mpsc::channel();
+    let refresh_ms = config.tui.refresh_ms;
     let event_tx = tx.clone();
     thread::spawn(move || {
         loop {
-            match event::poll(Duration::from_millis(100)) {
+            match event::poll(Duration::from_millis(refresh_ms.min(100))) {
                 Ok(true) => {
                     if let Ok(Event::Key(k)) = event::read()
                         && event_tx.send(Msg::Key(k)).is_err()
@@ -420,7 +456,7 @@ pub async fn run(path: &Path) -> Result<()> {
             .unwrap_or(Msg::Tick);
         let cmd = update(&mut model, msg);
         execute_cmd(&mut model, &mut runtime, cmd).await;
-        if next_tick.elapsed() >= Duration::from_millis(250) {
+        if next_tick.elapsed() >= Duration::from_millis(refresh_ms) {
             next_tick = Instant::now();
         }
     }

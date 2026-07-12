@@ -1,4 +1,4 @@
-─── jazzy-python ─────────────
+─── early-raven ──────────────
 ┌────────────────────────────┐
 │ASTER · Conversation        │
 │ready                       │

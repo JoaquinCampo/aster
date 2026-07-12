@@ -218,12 +218,17 @@ fn tui_required_field_edits_are_validated_atomic_and_conflict_aware() {
     fs::write(&path, "version=1\n[context]\ntotal_tokens=100\n").unwrap();
     let mut doc = ConfigDocument::load(&path).unwrap();
     doc.edit_required("context.total_tokens", "200").unwrap();
-    for field in ConfigDocument::editable_fields() {
-        if field != "context.total_tokens" {
-            doc.edit_required(&field, "true").unwrap();
-        }
+    for field in ConfigDocument::editable_fields()
+        .into_iter()
+        .filter(|field| field.ends_with(".enabled") || field == "memory.enabled")
+    {
+        doc.edit_required(&field, "true").unwrap();
     }
-    assert_eq!(ConfigDocument::editable_fields().len(), 15);
+    doc.edit_required("providers.default_provider", "\"xai\"")
+        .unwrap();
+    doc.edit_required("models.allow", "[\"grok-4\"]").unwrap();
+    doc.edit_required("lifecycle.concurrency", "3").unwrap();
+    assert!(ConfigDocument::editable_fields().len() > 40);
     assert!(doc.edit_required("providers.secret", "x").is_err());
     doc.save_atomic().unwrap();
     let loaded = ConfigDocument::load(&path).unwrap();

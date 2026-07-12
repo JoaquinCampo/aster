@@ -1,24 +1,24 @@
-─── urban-wombat ───────────────────────────────────────────────────────────────────────────────────────────────────────
+─── kind-otter ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Budgets/Usage ───────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│Usage and budgets [meter]                                                                                             │
-│tokens: 16 / unlimited                                                                                                │
-│remaining: unlimited                                                                                                  │
-│attempts: 1 / 1                                                                                                       │
-│timeout: none ms                                                                                                      │
-│elapsed cumulative: 1 ms                                                                                              │
-│time remaining: unlimited                                                                                             │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
+┌ Permissions/Approvals ───────────────────────────────────────────────────────────────────────────────────────────────┐
+│Permissions/approvals [status]                                                                                        │
+│capabilities: workspace:read                                                                                          │
+│pending: none                                                                                                         │
+│Isolation dimensions [six independent controls]                                                                       │
+│workspace/worktree: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·   │
+│limitation=test adapter provides no OS isolation                                                                      │
+│process: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·              │
+│limitation=test adapter provides no OS isolation                                                                      │
+│filesystem: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·           │
+│limitation=test adapter provides no OS isolation                                                                      │
+│network: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·              │
+│limitation=test adapter provides no OS isolation                                                                      │
+│credentials: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·          │
+│limitation=test adapter provides no OS isolation                                                                      │
+│external-service: active=false enforced=false · mechanism=deterministic adapter executes in the runtime process ·     │
+│limitation=test adapter provides no OS isolation                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
@@ -27,6 +27,6 @@
 │                                                                                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│>   │ pause unavailable for Succeeded  │ Tab screens · ↑↓ select · p pause · s resume · x cancel · r retry · o overrid│
+│>   │ Succeeded 180dfea4-b63d-428e-828e-2a9e595c5ed6  │ Tab screens · ↑↓ select · p pause · s resume · x cancel · r re│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ─── running | cursor(119,25) | fullscreen:true | title:"" ──────────────────────────────────────────────────────────────

@@ -6,6 +6,8 @@ use clap::Parser;
 struct Cli {
     #[arg(long, default_value = ".aster/state.db")]
     state: std::path::PathBuf,
+    #[arg(long, default_value = ".aster/config.toml")]
+    config: std::path::PathBuf,
 }
 
 #[tokio::main]
@@ -14,5 +16,5 @@ async fn main() -> Result<()> {
     if let Some(parent) = cli.state.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    aster::tui::run(&cli.state).await
+    aster::tui::run_configured(&cli.state, &cli.config).await
 }

@@ -129,6 +129,21 @@ capture 120x30-outcome-reconciled
 tui-use type "q"
 tui-use wait >/dev/null || true
 
+# Schema-driven nested configuration edit through the real TUI and file round trip.
+CFG="${DB%.db}-config.toml"
+printf 'version=2\n[lifecycle]\nconcurrency=1\n[tui]\nrefresh_ms=25\n' >"$CFG"
+tui-use start --label aster-config --cols 120 --rows 30 --cwd "$ROOT" "$BIN --state $DB --config $CFG" >/dev/null
+expect "Succeeded"
+for _ in $(seq 1 10); do tui-use press tab; done
+expect "Config editor"
+tui-use type "lifecycle.concurrency=3"
+tui-use press enter
+expect "config saved: lifecycle.concurrency"
+grep -q 'concurrency = 3' "$CFG"
+capture 120x30-config-nested
+tui-use type "q"
+tui-use wait >/dev/null || true
+
 # Compact restart: prove durable task recovery and inspect additional query panes.
 tui-use start --label aster-compact --cols 60 --rows 16 --cwd "$ROOT" "$BIN --state $DB" >/dev/null
 expect "Succeeded"

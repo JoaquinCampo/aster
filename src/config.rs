@@ -88,36 +88,6 @@ domain_config!(TuiConfig {
 });
 domain_config!(VerificationConfig { commands: Vec<String> = Vec::new(), require_clean_tree: bool = false, timeout_ms: u64 = 120_000 });
 domain_config!(LifecycleConfig { concurrency: usize = 1, retry_limit: u32 = 0, task_timeout_ms: Option<u64> = None, shutdown_grace_ms: u64 = 5_000 });
-#[derive(Debug, Clone, Default, Deserialize)]
-struct ConfigPatch {
-    version: Option<u32>,
-    context: Option<ContextPatch>,
-    memory: Option<MemoryPatch>,
-    providers: Option<ProvidersConfig>,
-    models: Option<ModelsConfig>,
-    roles: Option<RolesConfig>,
-    routing: Option<RoutingConfig>,
-    budgets: Option<BudgetsConfig>,
-    permissions: Option<PermissionsConfig>,
-    tools_mcp: Option<ToolsMcpConfig>,
-    skills_rules: Option<SkillsRulesConfig>,
-    hooks_plugins: Option<HooksPluginsConfig>,
-    persistence: Option<PersistenceConfig>,
-    tui: Option<TuiConfig>,
-    verification: Option<VerificationConfig>,
-    lifecycle: Option<LifecycleConfig>,
-    #[serde(flatten)]
-    extensions: BTreeMap<String, toml::Value>,
-}
-#[derive(Debug, Clone, Default, Deserialize)]
-struct ContextPatch {
-    total_tokens: Option<u32>,
-    category_tokens: Option<BTreeMap<String, u32>>,
-}
-#[derive(Debug, Clone, Default, Deserialize)]
-struct MemoryPatch {
-    enabled: Option<bool>,
-}
 impl Config {
     pub fn validate(&self) -> Result<()> {
         if self.version != CURRENT_CONFIG_VERSION {
@@ -171,45 +141,6 @@ impl Config {
         }
         Ok(())
     }
-    fn apply(&mut self, patch: ConfigPatch) {
-        if let Some(version) = patch.version {
-            self.version = version;
-        }
-        if let Some(context) = patch.context {
-            if let Some(total_tokens) = context.total_tokens {
-                self.context.total_tokens = total_tokens;
-            }
-            if let Some(category_tokens) = context.category_tokens {
-                self.context.category_tokens = category_tokens;
-            }
-        }
-        if let Some(memory) = patch.memory
-            && let Some(enabled) = memory.enabled
-        {
-            self.memory.enabled = enabled;
-        }
-        macro_rules! apply_domain {
-            ($field:ident) => {
-                if let Some(value) = patch.$field {
-                    self.$field = value;
-                }
-            };
-        }
-        apply_domain!(providers);
-        apply_domain!(models);
-        apply_domain!(roles);
-        apply_domain!(routing);
-        apply_domain!(budgets);
-        apply_domain!(permissions);
-        apply_domain!(tools_mcp);
-        apply_domain!(skills_rules);
-        apply_domain!(hooks_plugins);
-        apply_domain!(persistence);
-        apply_domain!(tui);
-        apply_domain!(verification);
-        apply_domain!(lifecycle);
-        self.extensions.extend(patch.extensions);
-    }
 }
 #[derive(Debug, Clone)]
 pub struct ConfigDocument {
@@ -232,57 +163,95 @@ impl ConfigDocument {
         })
     }
     pub fn editable_fields() -> Vec<String> {
-        let mut fields = vec!["context.total_tokens".into(), "memory.enabled".into()];
-        for domain in [
-            "providers",
-            "models",
-            "roles",
-            "routing",
-            "budgets",
-            "permissions",
-            "tools_mcp",
-            "skills_rules",
-            "hooks_plugins",
-            "persistence",
-            "tui",
-            "verification",
-            "lifecycle",
-        ] {
-            fields.push(format!("{domain}.enabled"));
-        }
-        fields
+        [
+            "context.total_tokens",
+            "memory.enabled",
+            "providers.enabled",
+            "providers.default_provider",
+            "providers.auth_ref",
+            "providers.endpoint",
+            "models.enabled",
+            "models.default_model",
+            "models.reasoning_effort",
+            "models.allow",
+            "roles.enabled",
+            "roles.default_role",
+            "roles.available",
+            "routing.enabled",
+            "routing.policy_path",
+            "routing.fallback_provider",
+            "routing.fallback_model",
+            "budgets.enabled",
+            "budgets.token_budget",
+            "budgets.timeout_ms",
+            "budgets.cost_limit_usd",
+            "permissions.enabled",
+            "permissions.default_allow",
+            "permissions.approval_ttl_secs",
+            "permissions.policy_path",
+            "tools_mcp.enabled",
+            "tools_mcp.servers",
+            "tools_mcp.allow_tools",
+            "tools_mcp.command_timeout_ms",
+            "skills_rules.enabled",
+            "skills_rules.skill_paths",
+            "skills_rules.rule_paths",
+            "skills_rules.max_context_tokens",
+            "hooks_plugins.enabled",
+            "hooks_plugins.hook_paths",
+            "hooks_plugins.plugin_paths",
+            "hooks_plugins.fail_closed",
+            "persistence.enabled",
+            "persistence.database_path",
+            "persistence.memory_path",
+            "persistence.artifacts_path",
+            "tui.enabled",
+            "tui.refresh_ms",
+            "tui.compact",
+            "tui.color",
+            "verification.enabled",
+            "verification.commands",
+            "verification.require_clean_tree",
+            "verification.timeout_ms",
+            "lifecycle.enabled",
+            "lifecycle.concurrency",
+            "lifecycle.retry_limit",
+            "lifecycle.task_timeout_ms",
+            "lifecycle.shutdown_grace_ms",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
     }
     pub fn edit_required(&mut self, field: &str, value: &str) -> Result<()> {
-        match field {
-            "context.total_tokens" => self.config.context.total_tokens = value.parse()?,
-            "memory.enabled" => self.config.memory.enabled = value.parse()?,
-            _ => {
-                let (domain, property) = field
-                    .split_once('.')
-                    .ok_or_else(|| anyhow::anyhow!("invalid configuration field: {field}"))?;
-                if property != "enabled" {
-                    bail!("field is not editable in the TUI: {field}")
-                }
-                let enabled: bool = value.parse()?;
-                match domain {
-                    "providers" => self.config.providers.enabled = enabled,
-                    "models" => self.config.models.enabled = enabled,
-                    "roles" => self.config.roles.enabled = enabled,
-                    "routing" => self.config.routing.enabled = enabled,
-                    "budgets" => self.config.budgets.enabled = enabled,
-                    "permissions" => self.config.permissions.enabled = enabled,
-                    "tools_mcp" => self.config.tools_mcp.enabled = enabled,
-                    "skills_rules" => self.config.skills_rules.enabled = enabled,
-                    "hooks_plugins" => self.config.hooks_plugins.enabled = enabled,
-                    "persistence" => self.config.persistence.enabled = enabled,
-                    "tui" => self.config.tui.enabled = enabled,
-                    "verification" => self.config.verification.enabled = enabled,
-                    "lifecycle" => self.config.lifecycle.enabled = enabled,
-                    _ => bail!("field is not editable in the TUI: {field}"),
-                }
-            }
+        if !Self::editable_fields()
+            .iter()
+            .any(|candidate| candidate == field)
+        {
+            bail!("field is not editable in the TUI: {field}")
         }
-        self.config.validate()
+        let mut root = toml::Value::try_from(&self.config)?;
+        let (section, property) = field
+            .split_once('.')
+            .context("configuration field must be nested")?;
+        let table = root
+            .as_table_mut()
+            .context("configuration root must be a table")?;
+        let section = table
+            .entry(section)
+            .or_insert_with(|| toml::Value::Table(Default::default()));
+        let section = section
+            .as_table_mut()
+            .context("configuration section must be a table")?;
+        let parsed: toml::Value = toml::from_str::<toml::Value>(&format!("value = {value}"))?
+            .get("value")
+            .cloned()
+            .context("configuration value is missing")?;
+        section.insert(property.to_owned(), parsed);
+        let candidate: Config = root.try_into()?;
+        candidate.validate()?;
+        self.config = candidate;
+        Ok(())
     }
     pub fn save_atomic(&mut self) -> Result<()> {
         let current = fs::read(&self.path).unwrap_or_default();
@@ -339,28 +308,42 @@ pub fn migrate(input: &str) -> Result<String> {
 }
 
 pub fn load_layered(paths: &[PathBuf]) -> Result<Config> {
-    let mut out = Config {
+    let default = Config {
         version: CURRENT_CONFIG_VERSION,
         ..Config::default()
     };
+    let mut out = toml::Value::try_from(default)?;
     for p in paths {
         if p.exists() {
-            let bytes = fs::read(p).with_context(|| format!("read {}", p.display()))?;
-            let text = std::str::from_utf8(&bytes)?;
-            let migrated = if toml::from_str::<toml::Value>(text)?
-                .get("version")
-                .is_some()
-            {
-                migrate(text)?
+            let text = fs::read_to_string(p).with_context(|| format!("read {}", p.display()))?;
+            let parsed = toml::from_str::<toml::Value>(&text)?;
+            let migrated = if parsed.get("version").is_some() {
+                migrate(&text)?
             } else {
-                text.to_owned()
+                text
             };
-            let patch: ConfigPatch = toml::from_str(&migrated)?;
-            out.apply(patch);
+            merge_toml(&mut out, toml::from_str(&migrated)?);
         }
     }
+    let out: Config = out.try_into()?;
     out.validate()?;
     Ok(out)
+}
+
+fn merge_toml(base: &mut toml::Value, patch: toml::Value) {
+    match (base, patch) {
+        (toml::Value::Table(base), toml::Value::Table(patch)) => {
+            for (key, value) in patch {
+                match base.get_mut(&key) {
+                    Some(existing) => merge_toml(existing, value),
+                    None => {
+                        base.insert(key, value);
+                    }
+                }
+            }
+        }
+        (base, patch) => *base = patch,
+    }
 }
 fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))

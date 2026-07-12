@@ -1,0 +1,32 @@
+─── lazy-jaguar ────────────────────────────────────────────────────────────────────────────────────────────────────────
+┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Config ──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Config editor [schema-driven · atomic/conflict-aware]                                                                 │
+│All required top-level domains (↑↓ select, e enable/apply)                                                            │
+│› context.total_tokens                                                                                                │
+│  memory.enabled                                                                                                      │
+│  providers.enabled                                                                                                   │
+│  providers.default_provider                                                                                          │
+│  providers.auth_ref                                                                                                  │
+│  providers.endpoint                                                                                                  │
+│  models.enabled                                                                                                      │
+│  models.default_model                                                                                                │
+│  models.reasoning_effort                                                                                             │
+│  models.allow                                                                                                        │
+│  roles.enabled                                                                                                       │
+│  roles.default_role                                                                                                  │
+│  roles.available                                                                                                     │
+│  routing.enabled                                                                                                     │
+│  routing.policy_path                                                                                                 │
+│  routing.fallback_provider                                                                                           │
+│  routing.fallback_model                                                                                              │
+│  budgets.enabled                                                                                                     │
+│  budgets.token_budget                                                                                                │
+│  budgets.timeout_ms                                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│>   │ config saved: lifecycle.concurrency  │ Tab screens · ↑↓ select · p pause · s resume · x cancel · r retry · o ove│
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+─── running | cursor(119,28) | fullscreen:true | title:"" ──────────────────────────────────────────────────────────────
