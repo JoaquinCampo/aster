@@ -54,6 +54,30 @@ done
 tui-use type "q"
 tui-use wait >/dev/null || true
 
+# Durable approval UX: request survives restart and exact allow resumes the blocked effect.
+tui-use start --label aster-approval --cols 120 --rows 30 --cwd "$ROOT" "$BIN --state $DB" >/dev/null
+expect "Succeeded"
+tui-use type "scenario:approval"
+tui-use press enter
+expect "approval required"
+for _ in $(seq 1 7); do tui-use press tab; done
+tui-use find "pending: write" >/dev/null
+tui-use find "grant:" >/dev/null
+tui-use find "expires:" >/dev/null
+capture 120x30-approval-pending
+tui-use type "q"
+tui-use wait >/dev/null || true
+tui-use start --label aster-approval-restart --cols 120 --rows 30 --cwd "$ROOT" "$BIN --state $DB" >/dev/null
+for _ in $(seq 1 7); do tui-use press tab; done
+tui-use find "pending: write" >/dev/null
+tui-use find "grant:" >/dev/null
+capture 120x30-approval-restart
+tui-use type "a"
+expect "blocked operation"
+capture 120x30-approval-allowed
+tui-use type "q"
+tui-use wait >/dev/null || true
+
 # Transactional plugin/MCP UX and endpoint disclosure diagnostics.
 tui-use start --label aster-plugins --cols 120 --rows 30 --cwd "$ROOT" "$BIN --state $DB" >/dev/null
 expect "Succeeded"

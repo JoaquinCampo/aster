@@ -421,3 +421,171 @@ fn mcp_stdio_approval_is_invalidated_by_argument_or_environment_mutation() {
     assert!(!marker.exists());
     assert_eq!(store.operations_for(g.task_id).unwrap().len(), 2);
 }
+
+#[tokio::test]
+async fn durable_pending_allow_resumes_exact_effect_after_restart() {
+    let d = tempfile::tempdir().unwrap();
+    let db = d.path().join("db");
+    let g = grant(d.path().to_owned());
+    let request = EffectRequest::WriteFile {
+        path: d.path().join("allowed"),
+        data: b"exact".to_vec(),
+    };
+    let store = Store::open(&db).unwrap();
+    let pending = EffectBroker {
+        store: &store,
+        adapter: SystemAdapter,
+    }
+    .request_approval(&g, request, Utc::now() + Duration::minutes(1))
+    .unwrap();
+    assert!(!d.path().join("allowed").exists());
+    drop(store);
+    let store = Store::open(&db).unwrap();
+    assert_eq!(store.pending_approvals().unwrap(), vec![pending.clone()]);
+    EffectBroker {
+        store: &store,
+        adapter: SystemAdapter,
+    }
+    .decide_pending(pending.id, true)
+    .await
+    .unwrap();
+    assert_eq!(std::fs::read(d.path().join("allowed")).unwrap(), b"exact");
+    assert!(matches!(
+        store
+            .pending_approval(pending.id)
+            .unwrap()
+            .unwrap()
+            .decision,
+        Some(ApprovalDecision::Allowed(_))
+    ));
+    assert_eq!(
+        store
+            .operation(pending.operation_id)
+            .unwrap()
+            .unwrap()
+            .state,
+        aster::domain::OperationState::Succeeded
+    );
+}
+
+#[tokio::test]
+async fn durable_pending_deny_fails_without_dispatch() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open(d.path().join("db")).unwrap();
+    let g = grant(d.path().to_owned());
+    let target = d.path().join("denied");
+    let pending = EffectBroker {
+        store: &store,
+        adapter: SystemAdapter,
+    }
+    .request_approval(
+        &g,
+        EffectRequest::WriteFile {
+            path: target.clone(),
+            data: b"no".to_vec(),
+        },
+        Utc::now() + Duration::minutes(1),
+    )
+    .unwrap();
+    assert!(
+        EffectBroker {
+            store: &store,
+            adapter: SystemAdapter
+        }
+        .decide_pending(pending.id, false)
+        .await
+        .is_err()
+    );
+    assert!(!target.exists());
+    assert!(matches!(
+        store
+            .pending_approval(pending.id)
+            .unwrap()
+            .unwrap()
+            .decision,
+        Some(ApprovalDecision::Denied { .. })
+    ));
+    assert_eq!(
+        store
+            .operation(pending.operation_id)
+            .unwrap()
+            .unwrap()
+            .state,
+        aster::domain::OperationState::Failed
+    );
+}
+
+#[tokio::test]
+async fn durable_pending_expiry_and_persisted_mutation_fail_closed() {
+    let d = tempfile::tempdir().unwrap();
+    let db = d.path().join("db");
+    let store = Store::open(&db).unwrap();
+    let g = grant(d.path().to_owned());
+    let pending = EffectBroker {
+        store: &store,
+        adapter: SystemAdapter,
+    }
+    .request_approval(
+        &g,
+        EffectRequest::WriteFile {
+            path: d.path().join("expired"),
+            data: vec![1],
+        },
+        Utc::now() + Duration::milliseconds(10),
+    )
+    .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    assert!(
+        EffectBroker {
+            store: &store,
+            adapter: SystemAdapter
+        }
+        .decide_pending(pending.id, true)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("expired")
+    );
+    assert!(!d.path().join("expired").exists());
+
+    let pending = EffectBroker {
+        store: &store,
+        adapter: SystemAdapter,
+    }
+    .request_approval(
+        &g,
+        EffectRequest::WriteFile {
+            path: d.path().join("original"),
+            data: vec![1],
+        },
+        Utc::now() + Duration::minutes(1),
+    )
+    .unwrap();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let mut mutated = pending.clone();
+    mutated.request = EffectRequest::WriteFile {
+        path: d.path().join("mutated"),
+        data: vec![2],
+    };
+    conn.execute(
+        "UPDATE approval_requests SET body=?2 WHERE id=?1",
+        rusqlite::params![
+            pending.id.to_string(),
+            serde_json::to_string(&mutated).unwrap()
+        ],
+    )
+    .unwrap();
+    assert!(
+        EffectBroker {
+            store: &store,
+            adapter: SystemAdapter
+        }
+        .decide_pending(pending.id, true)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("mutated")
+    );
+    assert!(!d.path().join("original").exists());
+    assert!(!d.path().join("mutated").exists());
+}

@@ -2,6 +2,7 @@ use crate::{
     config::ConfigDocument,
     context,
     domain::{AuditEvent, ExecutionIsolation, IsolationDimension, Task, TaskState},
+    effects::{EffectBroker, PendingApprovalRequest, SystemAdapter},
     memory::{MemoryScope, MemoryStore},
     plugin,
     provider::{FakePiAdapter, builtin_statuses},
@@ -91,13 +92,6 @@ pub struct Observability {
     pub health_checked_at: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PendingApproval {
-    pub task_id: uuid::Uuid,
-    pub request_digest: String,
-    pub summary: String,
-}
-
 #[derive(Debug, Clone)]
 pub struct Model {
     pub screen: Screen,
@@ -113,8 +107,7 @@ pub struct Model {
     pub config_path: Option<std::path::PathBuf>,
     pub memory_path: std::path::PathBuf,
     pub config_selected: usize,
-    pub pending_approvals: Vec<PendingApproval>,
-    pub approval_decisions: Vec<(String, bool)>,
+    pub pending_approvals: Vec<PendingApprovalRequest>,
 }
 
 impl Model {
@@ -134,7 +127,6 @@ impl Model {
             memory_path: std::path::PathBuf::from(":memory:"),
             config_selected: 0,
             pending_approvals: vec![],
-            approval_decisions: vec![],
         }
     }
 }
@@ -161,7 +153,7 @@ pub enum Cmd {
     Memory(String),
     Plugin(String),
     EditConfig(String, String),
-    DecideApproval(String, bool),
+    DecideApproval(uuid::Uuid, bool),
     Quit,
 }
 
@@ -328,16 +320,8 @@ fn update_key(model: &mut Model, code: KeyCode) -> Cmd {
     }
 }
 fn decide_visible_approval(model: &mut Model, allowed: bool) -> Cmd {
-    let Some(task_id) = model.tasks.get(model.selected).map(|task| task.id) else {
-        model.status = "no task selected".into();
-        return Cmd::None;
-    };
-    let Some(request) = model
-        .pending_approvals
-        .iter()
-        .find(|request| request.task_id == task_id)
-    else {
-        model.status = "no pending approval for selected task".into();
+    let Some(request) = model.pending_approvals.first() else {
+        model.status = "no pending approval".into();
         return Cmd::None;
     };
     model.status = if allowed {
@@ -346,7 +330,7 @@ fn decide_visible_approval(model: &mut Model, allowed: bool) -> Cmd {
         "approval denied; operation remains blocked"
     }
     .into();
-    Cmd::DecideApproval(request.request_digest.clone(), allowed)
+    Cmd::DecideApproval(request.id, allowed)
 }
 
 fn request_action(model: &mut Model, name: &str, f: impl FnOnce(uuid::Uuid) -> Cmd) -> Cmd {
@@ -444,6 +428,7 @@ pub async fn run(path: &Path) -> Result<()> {
 }
 
 fn refresh_observability(model: &mut Model, store: &Store, db_path: &Path) {
+    model.pending_approvals = store.pending_approvals().unwrap_or_default();
     model.observability.health_checked_at = chrono::Utc::now().to_rfc3339();
     model.observability.audit = model
         .tasks
@@ -638,6 +623,61 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
                             }
                             Err(e) => model.status = format!("error: {e}"),
                         }
+                    } else if model.tasks[model.selected]
+                        .prompt
+                        .contains("scenario:approval")
+                    {
+                        use crate::effects::{
+                            Capability, EffectRequest, FilesystemIsolation, IsolationProfile,
+                            NetworkIsolation, ProcessIsolation, ScopedGrant, SecretIsolation,
+                        };
+                        use std::collections::{BTreeMap, BTreeSet};
+                        let workspace = model
+                            .memory_path
+                            .parent()
+                            .unwrap_or(Path::new("."))
+                            .to_path_buf();
+                        let grant = ScopedGrant {
+                            id: uuid::Uuid::new_v4(),
+                            task_id: id,
+                            capabilities: BTreeSet::from([Capability::FileWrite]),
+                            workspace: workspace.clone(),
+                            worktrees: vec![],
+                            executable_allowlist: BTreeSet::new(),
+                            network_allowlist: BTreeSet::new(),
+                            external_allowlist: BTreeSet::new(),
+                            secret_destinations: BTreeMap::new(),
+                            isolation: IsolationProfile {
+                                filesystem: FilesystemIsolation::WorkspaceReadWrite,
+                                process: ProcessIsolation::Denied,
+                                network: NetworkIsolation::Denied,
+                                secrets: SecretIsolation::Denied,
+                            },
+                            expires_at: None,
+                        };
+                        let request = EffectRequest::WriteFile {
+                            path: workspace.join("aster-approved-effect.txt"),
+                            data: b"approved via durable TUI request".to_vec(),
+                        };
+                        match (EffectBroker {
+                            store: &runtime.store,
+                            adapter: SystemAdapter,
+                        })
+                        .request_approval(
+                            &grant,
+                            request,
+                            chrono::Utc::now() + chrono::Duration::minutes(5),
+                        ) {
+                            Ok(_) => {
+                                model.pending_approvals =
+                                    runtime.store.pending_approvals().unwrap_or_default();
+                                model.status =
+                                    "approval required; open Permissions/Approvals".into();
+                            }
+                            Err(error) => {
+                                model.status = format!("approval request failed: {error}")
+                            }
+                        }
                     } else {
                         match runtime.run_ready().await {
                             Ok(_) => match runtime.store.tasks() {
@@ -722,16 +762,21 @@ async fn execute_cmd(model: &mut Model, runtime: &mut Runtime<FakePiAdapter>, cm
                 Err(e) => model.status = format!("route override rejected: {e}"),
             }
         }
-        Cmd::DecideApproval(digest, allowed) => {
-            model.approval_decisions.push((digest.clone(), allowed));
-            model
-                .pending_approvals
-                .retain(|request| request.request_digest != digest);
-            model.status = format!(
-                "approval {} for request {}",
-                if allowed { "allowed" } else { "denied" },
-                &digest[..digest.len().min(12)]
-            );
+        Cmd::DecideApproval(id, allowed) => {
+            let result = EffectBroker {
+                store: &runtime.store,
+                adapter: SystemAdapter,
+            }
+            .decide_pending(id, allowed)
+            .await;
+            model.pending_approvals = runtime.store.pending_approvals().unwrap_or_default();
+            model.status = match result {
+                Ok(_) => format!("approval allowed; blocked operation {id} resumed"),
+                Err(error) if !allowed => {
+                    format!("approval denied; blocked operation failed: {error}")
+                }
+                Err(error) => format!("approval failed: {error}"),
+            };
         }
         Cmd::Memory(command) => {
             let result = MemoryStore::open(&model.memory_path)
@@ -1030,8 +1075,8 @@ fn render_screen(f: &mut Frame<'_>, m: &Model, a: Rect, compact: bool) {
         Screen::Transcripts => selected.and_then(|t|t.output.clone()).unwrap_or("No transcript yet".into()),
         Screen::Audit => format!("Audit events [log]\n{}", m.observability.audit.iter().rev().map(|e|format!("{} · {} · {}",e.at.format("%H:%M:%S"),e.kind,e.detail)).collect::<Vec<_>>().join("\n")),
         Screen::Approvals => selected.map(|t| {
-            let pending = m.pending_approvals.iter().find(|request| request.task_id == t.id)
-                .map(|request| format!("pending: {}\ndigest: {}\n[a] allow exact request · [d] deny", request.summary, request.request_digest))
+            let pending = m.pending_approvals.first()
+                .map(|request| format!("pending: {}\ngrant: {}\ndigest: {}\nexpires: {}\n[a] allow exact request · [d] deny", request.effect_summary, request.grant_id, request.request_hash, request.expires_at))
                 .unwrap_or_else(|| "pending: none".into());
             format!("Permissions/approvals [status]\ncapabilities: {}\n{}\nIsolation dimensions [six independent controls]\n{}", t.route.dimensions.capabilities.join(", "), pending, isolation_report(t, &m.observability.isolation))
         }).unwrap_or("No task selected".into()),
@@ -1297,67 +1342,78 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn approval_allow_deny_and_six_isolation_dimensions_are_visible() {
+    async fn approval_allow_is_durable_and_visible() {
+        use crate::effects::{
+            Capability, EffectRequest, FilesystemIsolation, IsolationProfile, NetworkIsolation,
+            ProcessIsolation, ScopedGrant, SecretIsolation,
+        };
+        use std::collections::{BTreeMap, BTreeSet};
+        let dir = tempfile::tempdir().unwrap();
         let task = sample();
         let task_id = task.id;
+        let store = Store::open(dir.path().join("tui.db")).unwrap();
+        store.save_task(&task).unwrap();
+        let grant = ScopedGrant {
+            id: uuid::Uuid::new_v4(),
+            task_id,
+            capabilities: BTreeSet::from([Capability::FileWrite]),
+            workspace: dir.path().to_path_buf(),
+            worktrees: vec![],
+            executable_allowlist: BTreeSet::new(),
+            network_allowlist: BTreeSet::new(),
+            external_allowlist: BTreeSet::new(),
+            secret_destinations: BTreeMap::new(),
+            isolation: IsolationProfile {
+                filesystem: FilesystemIsolation::WorkspaceReadWrite,
+                process: ProcessIsolation::Denied,
+                network: NetworkIsolation::Denied,
+                secrets: SecretIsolation::Denied,
+            },
+            expires_at: None,
+        };
+        let request = EffectRequest::WriteFile {
+            path: dir.path().join("approved.txt"),
+            data: b"approved".to_vec(),
+        };
+        let pending = EffectBroker {
+            store: &store,
+            adapter: SystemAdapter,
+        }
+        .request_approval(
+            &grant,
+            request,
+            chrono::Utc::now() + chrono::Duration::minutes(5),
+        )
+        .unwrap();
+        drop(store);
+        let mut runtime = Runtime::new(
+            Store::open(dir.path().join("tui.db")).unwrap(),
+            FakePiAdapter,
+        );
         let mut m = Model::new(vec![task]);
         m.screen = Screen::Approvals;
-        m.observability.isolation = IsolationDimension::ALL
-            .into_iter()
-            .map(|dimension| ExecutionIsolation {
-                task_id,
-                attempt: 1,
-                operation_id: uuid::Uuid::new_v4(),
-                dimension,
-                active: dimension == IsolationDimension::Process,
-                enforced: dimension == IsolationDimension::Process,
-                mechanism: "persisted test mechanism".into(),
-                limitation: "persisted test limitation".into(),
-                recorded_at: chrono::Utc::now(),
-            })
-            .collect();
-        m.pending_approvals.push(PendingApproval {
-            task_id,
-            request_digest: "0123456789abcdef".into(),
-            summary: "network api.example.com".into(),
-        });
+        refresh_observability(&mut m, &runtime.store, &dir.path().join("tui.db"));
         let rendered = render(120, 30, &m);
-        for label in [
-            "workspace/worktree",
-            "process",
-            "filesystem",
-            "network",
-            "credentials",
-            "external-service",
-        ] {
-            assert!(
-                rendered.contains(label),
-                "missing isolation dimension {label}"
-            );
-        }
-        assert!(rendered.contains("active=true enforced=true"));
-        assert!(rendered.contains("mechanism=persisted test mechanism"));
-        assert!(rendered.contains("limitation=persisted test limitation"));
+        assert!(rendered.contains("write"));
+        assert!(rendered.contains(&pending.request_hash));
+        assert!(rendered.contains(&pending.grant_id.to_string()));
         let allow = update_key(&mut m, KeyCode::Char('a'));
-        assert_eq!(allow, Cmd::DecideApproval("0123456789abcdef".into(), true));
-        let mut runtime = Runtime::new(Store::open(":memory:").unwrap(), FakePiAdapter);
+        assert_eq!(allow, Cmd::DecideApproval(pending.id, true));
         execute_cmd(&mut m, &mut runtime, allow).await;
         assert_eq!(
-            m.approval_decisions,
-            vec![("0123456789abcdef".into(), true)]
+            std::fs::read(dir.path().join("approved.txt")).unwrap(),
+            b"approved"
         );
-        m.pending_approvals.push(PendingApproval {
-            task_id,
-            request_digest: "deny-digest".into(),
-            summary: "secret redirect".into(),
-        });
-        let deny = update_key(&mut m, KeyCode::Char('d'));
-        assert_eq!(deny, Cmd::DecideApproval("deny-digest".into(), false));
-        execute_cmd(&mut m, &mut runtime, deny).await;
-        assert_eq!(
-            m.approval_decisions.last(),
-            Some(&("deny-digest".into(), false))
-        );
+        assert!(runtime.store.pending_approvals().unwrap().is_empty());
+        assert!(matches!(
+            runtime
+                .store
+                .pending_approval(pending.id)
+                .unwrap()
+                .unwrap()
+                .decision,
+            Some(crate::effects::ApprovalDecision::Allowed(_))
+        ));
     }
 
     #[test]

@@ -3,7 +3,7 @@ use crate::{
         Artifact, AuditEvent, Checkpoint, ExecutionIsolation, Operation, OperationState, Task,
         TaskState,
     },
-    effects::OperationAuthorization,
+    effects::{ApprovalDecision, OperationAuthorization, PendingApprovalRequest},
     verification::{DurableEvidence, VerificationRun},
 };
 use anyhow::{Result, bail};
@@ -28,6 +28,8 @@ impl Store {
           CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, operation_id TEXT NOT NULL, digest TEXT NOT NULL, body TEXT NOT NULL);
           CREATE INDEX IF NOT EXISTS artifacts_owner ON artifacts(task_id,attempt,operation_id);
           CREATE TABLE IF NOT EXISTS effect_authorizations(id TEXT PRIMARY KEY, operation_id TEXT NOT NULL, task_id TEXT NOT NULL, body TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS approval_requests(id TEXT PRIMARY KEY, operation_id TEXT UNIQUE NOT NULL, task_id TEXT NOT NULL, grant_id TEXT NOT NULL, request_hash TEXT NOT NULL, expires_at TEXT NOT NULL, decided INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL);
+          CREATE INDEX IF NOT EXISTS approval_requests_pending ON approval_requests(decided,task_id,expires_at);
           CREATE TABLE IF NOT EXISTS execution_isolation(task_id TEXT NOT NULL, attempt INTEGER NOT NULL, operation_id TEXT NOT NULL, dimension TEXT NOT NULL, active INTEGER NOT NULL, enforced INTEGER NOT NULL, mechanism TEXT NOT NULL, limitation TEXT NOT NULL, recorded_at TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(operation_id,dimension));
           CREATE INDEX IF NOT EXISTS execution_isolation_owner ON execution_isolation(task_id,attempt,operation_id);
           CREATE TABLE IF NOT EXISTS routing_outcomes(policy_revision INTEGER NOT NULL, role TEXT NOT NULL, model TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(policy_revision,role,model));
@@ -41,7 +43,8 @@ impl Store {
           INSERT OR IGNORE INTO schema_migrations VALUES(2, datetime('now'));
           INSERT OR IGNORE INTO schema_migrations VALUES(3, datetime('now'));
           INSERT OR IGNORE INTO schema_migrations VALUES(4, datetime('now'));
-          INSERT OR IGNORE INTO schema_migrations VALUES(5, datetime('now'));" )?;
+          INSERT OR IGNORE INTO schema_migrations VALUES(5, datetime('now'));
+          INSERT OR IGNORE INTO schema_migrations VALUES(6, datetime('now'));" )?;
         Ok(Self { conn })
     }
     pub fn save_task(&self, task: &Task) -> Result<()> {
@@ -242,6 +245,61 @@ impl Store {
         }
         Ok(artifacts)
     }
+    pub fn save_pending_approval(&self, pending: &PendingApprovalRequest) -> Result<()> {
+        if pending.decision.is_some()
+            || pending.request_hash != crate::effects::request_hash(&pending.request)?
+        {
+            bail!("invalid pending approval request")
+        }
+        self.conn.execute("INSERT INTO approval_requests(id,operation_id,task_id,grant_id,request_hash,expires_at,decided,body) VALUES(?1,?2,?3,?4,?5,?6,0,?7)", params![pending.id.to_string(), pending.operation_id.to_string(), pending.task_id.to_string(), pending.grant_id.to_string(), pending.request_hash, pending.expires_at.to_rfc3339(), serde_json::to_string(pending)?])?;
+        Ok(())
+    }
+    pub fn pending_approval(&self, id: Uuid) -> Result<Option<PendingApprovalRequest>> {
+        let body: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT body FROM approval_requests WHERE id=?1",
+                [id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(body.map(|body| serde_json::from_str(&body)).transpose()?)
+    }
+    pub fn pending_approvals(&self) -> Result<Vec<PendingApprovalRequest>> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT body FROM approval_requests WHERE decided=0 ORDER BY rowid")?;
+        let bodies = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        bodies
+            .into_iter()
+            .map(|body| Ok(serde_json::from_str(&body)?))
+            .collect()
+    }
+    pub fn decide_approval(&self, pending: &PendingApprovalRequest) -> Result<()> {
+        if pending.decision.is_none() {
+            bail!("approval decision missing")
+        }
+        let changed = self.conn.execute(
+            "UPDATE approval_requests SET decided=1,body=?2 WHERE id=?1 AND decided=0",
+            params![pending.id.to_string(), serde_json::to_string(pending)?],
+        )?;
+        if changed != 1 {
+            bail!("approval request already decided")
+        }
+        Ok(())
+    }
+    pub fn expire_pending_approval(&self, id: Uuid) -> Result<()> {
+        let mut pending = self
+            .pending_approval(id)?
+            .ok_or_else(|| anyhow::anyhow!("approval request not found"))?;
+        pending.decision = Some(ApprovalDecision::Denied {
+            decided_at: Utc::now(),
+        });
+        self.decide_approval(&pending)
+    }
+
     pub fn authorize_effect(&self, auth: &OperationAuthorization) -> Result<()> {
         self.conn.execute(
             "INSERT INTO effect_authorizations(id,operation_id,task_id,body) VALUES(?1,?2,?3,?4)",

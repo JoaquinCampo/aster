@@ -110,6 +110,33 @@ impl EffectRequest {
             Self::External { .. } => Capability::External,
         }
     }
+
+    pub fn summary(&self) -> String {
+        match self {
+            Self::ReadFile { path } => format!("read {}", path.display()),
+            Self::WriteFile { path, data } => {
+                format!("write {} ({} bytes)", path.display(), data.len())
+            }
+            Self::Exec {
+                program, args, cwd, ..
+            } => format!(
+                "execute {} {:?} in {}",
+                program.display(),
+                args,
+                cwd.display()
+            ),
+            Self::Network {
+                destination,
+                payload,
+            } => format!("send {} bytes to {destination}", payload.len()),
+            Self::Secret { name, destination } => format!("read secret {name} for {destination}"),
+            Self::External {
+                service,
+                action,
+                payload,
+            } => format!("external {service}/{action} ({} bytes)", payload.len()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -139,6 +166,27 @@ impl Approval {
         })
     }
 }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PendingApprovalRequest {
+    pub id: Uuid,
+    pub operation_id: Uuid,
+    pub task_id: Uuid,
+    pub grant_id: Uuid,
+    pub request_hash: String,
+    pub expires_at: DateTime<Utc>,
+    pub effect_summary: String,
+    pub grant: ScopedGrant,
+    pub request: EffectRequest,
+    pub decision: Option<ApprovalDecision>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ApprovalDecision {
+    Allowed(Approval),
+    Denied { decided_at: DateTime<Utc> },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OperationAuthorization {
     pub id: Uuid,
@@ -381,6 +429,116 @@ impl<'a, A: EffectAdapter> EffectBroker<'a, A> {
             },
         )
     }
+    /// Persists a blocked effect and its exact grant/request binding before the
+    /// operator is asked to decide. No adapter method is called here.
+    pub fn request_approval(
+        &self,
+        grant: &ScopedGrant,
+        request: EffectRequest,
+        expires_at: DateTime<Utc>,
+    ) -> Result<PendingApprovalRequest> {
+        use crate::domain::{Operation, OperationState};
+        Policy::evaluate(grant, &request)?;
+        if matches!(request, EffectRequest::ReadFile { .. }) {
+            bail!("read-only effects do not require approval")
+        }
+        if expires_at <= Utc::now() {
+            bail!("approval request expiry must be in the future")
+        }
+        let operation = Operation {
+            id: Uuid::new_v4(),
+            task_id: grant.task_id,
+            attempt: self.store.operations_for(grant.task_id)?.len() as u32 + 1,
+            state: OperationState::IntentRecorded,
+            retry_safe: false,
+            started_at: Utc::now(),
+            completed_at: None,
+        };
+        self.store.create_operation(&operation)?;
+        let pending = PendingApprovalRequest {
+            id: Uuid::new_v4(),
+            operation_id: operation.id,
+            task_id: grant.task_id,
+            grant_id: grant.id,
+            request_hash: request_hash(&request)?,
+            expires_at,
+            effect_summary: request.summary(),
+            grant: grant.clone(),
+            request,
+            decision: None,
+            created_at: Utc::now(),
+        };
+        self.store.save_pending_approval(&pending)?;
+        Ok(pending)
+    }
+
+    /// Atomically records the operator decision, then dispatches the exact
+    /// persisted request on allow or marks the blocked operation failed on deny.
+    pub async fn decide_pending(&self, id: Uuid, allowed: bool) -> Result<Vec<u8>> {
+        use crate::domain::OperationState;
+        let mut pending = self
+            .store
+            .pending_approval(id)?
+            .ok_or_else(|| anyhow!("approval request not found"))?;
+        if pending.decision.is_some() {
+            bail!("approval request already decided")
+        }
+        let exact_hash = request_hash(&pending.request)?;
+        if exact_hash != pending.request_hash
+            || pending.grant.id != pending.grant_id
+            || pending.grant.task_id != pending.task_id
+        {
+            bail!("pending approval binding was mutated")
+        }
+        let mut operation = self
+            .store
+            .operation(pending.operation_id)?
+            .ok_or_else(|| anyhow!("blocked operation not found"))?;
+        if pending.expires_at <= Utc::now() {
+            operation.state = OperationState::TimedOut;
+            operation.completed_at = Some(Utc::now());
+            self.store.save_operation(&operation)?;
+            self.store.expire_pending_approval(id)?;
+            bail!("approval request expired")
+        }
+        if !allowed {
+            pending.decision = Some(ApprovalDecision::Denied {
+                decided_at: Utc::now(),
+            });
+            self.store.decide_approval(&pending)?;
+            operation.state = OperationState::Failed;
+            operation.completed_at = Some(Utc::now());
+            self.store.save_operation(&operation)?;
+            bail!("effect denied by operator")
+        }
+        let approval = Approval::for_request(
+            pending.task_id,
+            pending.grant_id,
+            &pending.request,
+            pending.expires_at,
+        )?;
+        pending.decision = Some(ApprovalDecision::Allowed(approval.clone()));
+        self.store.decide_approval(&pending)?;
+        operation.state = OperationState::Running;
+        self.store.save_operation(&operation)?;
+        let result = self
+            .execute(
+                operation.id,
+                &pending.grant,
+                Some(&approval),
+                pending.request,
+            )
+            .await;
+        operation.completed_at = Some(Utc::now());
+        operation.state = if result.is_ok() {
+            OperationState::Succeeded
+        } else {
+            OperationState::Failed
+        };
+        self.store.save_operation(&operation)?;
+        result
+    }
+
     /// Creates and owns the durable operation lifecycle for an effect. The
     /// intent is committed before authorization or adapter dispatch.
     pub async fn execute_owned(
