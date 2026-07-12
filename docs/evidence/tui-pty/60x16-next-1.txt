@@ -1,15 +1,15 @@
-─── lazy-python ────────────────────────────────────────────
+─── lazy-wombat ────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│
 └──────────────────────────────────────────────────────────┘
 ┌ Tasks · compact ─────────────────────────────────────────┐
-│› 894ace2d Succeeded/Background implement deterministic   │
+│› f2cb352e Succeeded/Background implement deterministic   │
 │acceptance evidence · terminal=Some(Completed) · Actions: │
 │pause=false resume=false cancel=false retry=false         │
-│  180dfea4 Succeeded/Background cenario:approval ·        │
+│  6c687133 Succeeded/Background cenario:approval ·        │
 │terminal=Some(Completed) · Actions: pause=false           │
 │resume=false cancel=false retry=false                     │
-│  28401174 TimedOut/Background cenario:timeout ·          │
+│  03a22949 TimedOut/Background cenario:timeout ·          │
 │terminal=Some(TimeoutExceeded) · Actions: pause=false     │
 └──────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────┐

@@ -180,11 +180,16 @@ impl<B: EffectBroker> HookRunner<B> {
             trigger: spec.trigger,
             context,
         })?;
-        child
+        if child
             .stdin
             .take()
             .context("hook stdin unavailable")?
-            .write_all(&payload)?;
+            .write_all(&payload)
+            .is_err()
+        {
+            let _ = child.wait();
+            return self.failure(spec, "hook process failed before accepting invocation");
+        }
         let timeout = Duration::from_millis(spec.timeout_ms);
         let output = match receiver.recv_timeout(timeout) {
             Ok(output) => output?,

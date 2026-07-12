@@ -1,9 +1,9 @@
-─── urban-wombat ───────────────────────────────────────────────────────────────────────────────────────────────────────
+─── salty-quail ────────────────────────────────────────────────────────────────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overrides │ Budgets/Usage │ Audit │ Permissions/Approvals │ Contex│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Tasks ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│› 894ace2d Succeeded/Background implement deterministic acceptance evidence · terminal=Some(Completed) · Actions:     │
+│› f2cb352e Succeeded/Background implement deterministic acceptance evidence · terminal=Some(Completed) · Actions:     │
 │pause=false resume=false cancel=false retry=false                                                                     │
 │                                                                                                                      │
 │                                                                                                                      │

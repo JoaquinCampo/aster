@@ -1,6 +1,6 @@
 # Aster
 
-Aster is a provisional codename for a durable, observable agent harness built around Pi. This repository currently implements the **required first architectural slice** from [`BRIEF.md`](BRIEF.md): a Rust TUI, explicit auditable routing, a Pi adapter boundary with deterministic fake, durable SQLite task/event history, and deterministic verification evidence.
+Aster is a provisional codename for a durable, observable agent harness built around Pi. This repository implements the coherent v0.1 baseline from [`BRIEF.md`](BRIEF.md): a custom Rust TUI and control plane, pinned Pi sidecar integration, dynamic auditable routing, durable orchestration and recovery, enforced effect brokering, context and memory systems, verification workflows, and mediated extensions.
 
 ## Run
 
@@ -44,4 +44,4 @@ The versioned deterministic comparison with the fixed strong-model baseline is i
 
 ## Status
 
-This is an initial vertical slice, **not a completed v0.1**. Live Pi and Codex bridge integration, lifecycle controls, OS-enforced isolation, full configuration, extensibility, compatibility fixtures, benchmarks, hosted CI, TUI PTY validation, and macOS arm64 release evidence remain open and are tracked in `docs/acceptance-matrix.md`.
+The v0.1 local acceptance baseline is complete. Deterministic contract fixtures cover xAI/Grok and generic OpenAI-compatible providers as expressly permitted when external credentials are unavailable; live-interoperability breadth remains accurately disclosed in `docs/acceptance-matrix.md`. Release status is tied to the candidate commit's hosted Linux and native macOS arm64 gates.

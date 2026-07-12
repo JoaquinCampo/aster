@@ -1,16 +1,16 @@
-─── lazy-python ────────────────────────────────────────────
+─── lazy-wombat ────────────────────────────────────────────
 ┌ ASTER ───────────────────────────────────────────────────┐
 │ Conversation │ Tasks │ DAG │ Transcripts │ Routing/Overri│
 └──────────────────────────────────────────────────────────┘
 ┌ DAG · compact ───────────────────────────────────────────┐
 │DAG [graph] · duration-weighted critical path endpoint:   │
-│7a0a59eb (3445 ms)                                        │
-│894ace2d ← root                                           │
-│180dfea4 ← root                                           │
-│28401174 ← root                                           │
-│899acb09 ← root                                           │
-│4d842e42 ← root                                           │
-│7a0a59eb ← root                                           │
+│8999b10b (3420 ms)                                        │
+│f2cb352e ← root                                           │
+│6c687133 ← root                                           │
+│03a22949 ← root                                           │
+│150d584f ← root                                           │
+│3d985ed1 ← root                                           │
+│8999b10b ← root                                           │
 └──────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────┐
 │>   │ ready  │ Tab screens · ↑↓ select · p pause · s resum│

@@ -21,13 +21,7 @@ All checks passed on the final-gate candidate, including `cargo audit --deny war
 
 ## Real TUI PTY
 
-Built the release binary and ran `scripts/tui-acceptance.sh` through `tui-use`. The reproducible run preserved semantic text and JSON snapshots under `docs/evidence/tui-pty/`:
-
-- `120×30`: submitted a deterministic successful task, applied a validated route preset, observed an illegal pause rejection for a succeeded task, and traversed query panes.
-- Restarted against the same SQLite database at `60×16` and observed the persisted succeeded task plus compact query panes.
-- Restarted at degraded `30×8` dimensions and retained semantic task status.
-
-The script uses semantic waits rather than timing sleeps and retains terminal dimensions, cursor/status metadata, and screen content in JSON alongside human-readable snapshots. Timeout, permission-denial, cancellation-in-flight, and injected recovery-failure PTY cases remain required.
+The final `scripts/tui-acceptance.sh` run covered the complete release-critical matrix through real `tui-use` PTYs and preserved semantic text/JSON snapshots under `docs/evidence/tui-pty/`: success, all-dimension route override, illegal lifecycle control, durable approval across restart and exact allow, plugin/MCP diagnostics, timeout, permission denial, cancellation in flight, injected crash, `OutcomeUnknown` restart recovery, explicit reconciliation, nested configuration round-trip, every required query pane, and 120×30/60×16/30×8 dimensions. The script uses semantic waits rather than timing sleeps and all sessions exited after validation.
 
 ## Local Codex bridge
 
